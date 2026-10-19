@@ -21,8 +21,9 @@ Push the current project (`youtube-viet-dub`) to GitHub.
   - Checked git configuration and confirmed SSH key access.
   - Initialized git repository on branch `main`.
   - Staged and created initial commit.
+  - Added remote origin (`git@github.com:An2412/trans-vietsub.git`).
+  - Fetched and merged remote `origin/main` (incorporating `LICENSE` cleanly).
 - Now:
-  - Add remote origin (`git@github.com:An2412/trans-vietsub.git`).
-  - Push branch to GitHub (`git push -u origin main`).
+  - Push branch `main` to GitHub (`git push -u origin main`).
 - Next:
-  - Verify remote branch on GitHub.
+  - Confirm push success.
