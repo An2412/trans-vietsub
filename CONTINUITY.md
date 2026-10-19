@@ -23,7 +23,8 @@ Push the current project (`youtube-viet-dub`) to GitHub.
   - Staged and created initial commit.
   - Added remote origin (`git@github.com:An2412/trans-vietsub.git`).
   - Fetched and merged remote `origin/main` (incorporating `LICENSE` cleanly).
+  - Pushed branch `main` to GitHub (`git push -u origin main`) successfully.
 - Now:
-  - Push branch `main` to GitHub (`git push -u origin main`).
+  - Completed pushing codebase to `https://github.com/An2412/trans-vietsub`.
 - Next:
-  - Confirm push success.
+  - Ready for subsequent tasks.
