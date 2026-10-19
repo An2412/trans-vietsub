@@ -6,23 +6,23 @@ Push the current project (`youtube-viet-dub`) to GitHub.
 ## Constraints & Assumptions
 - Git is installed. Default branch configured to `main`.
 - User identity: `phamngocan2412` <an.207ct68609@gmail.com>.
-- Remote GitHub repository URL is UNCONFIRMED.
-- Authentication method (HTTPS token / SSH key) is UNCONFIRMED.
+- GitHub Account: `An2412` (SSH authentication confirmed working via `ssh -T git@github.com`).
+- Remote GitHub repository: `trans-vietsub` (`git@github.com:An2412/trans-vietsub.git` / `https://github.com/An2412/trans-vietsub.git`).
 
 ## Key Decisions
 - Initialize git repository locally with default branch `main`.
 - Stage all project files adhering to `.gitignore`.
 - Create initial commit.
-- Prompt user for GitHub remote repository URL / credentials to push.
+- Use SSH URL `git@github.com:An2412/trans-vietsub.git` so git push succeeds seamlessly with user's verified SSH key.
 
 ## Progress State
 - Done:
   - Inspected repository structure and `.gitignore`.
-  - Checked git configuration and SSH keys.
+  - Checked git configuration and confirmed SSH key access.
   - Initialized git repository on branch `main`.
-  - Staged and created initial commit (`feat: initial commit for Viet Dub prototype`).
+  - Staged and created initial commit.
 - Now:
-  - Awaiting GitHub repository URL from the user to configure remote and push.
+  - Add remote origin (`git@github.com:An2412/trans-vietsub.git`).
+  - Push branch to GitHub (`git push -u origin main`).
 - Next:
-  - Set remote origin (`git remote add origin <url>`).
-  - Push to GitHub (`git push -u origin main`).
+  - Verify remote branch on GitHub.
