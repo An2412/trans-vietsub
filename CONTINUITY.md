@@ -19,8 +19,10 @@ Push the current project (`youtube-viet-dub`) to GitHub.
 - Done:
   - Inspected repository structure and `.gitignore`.
   - Checked git configuration and SSH keys.
+  - Initialized git repository on branch `main`.
+  - Staged and created initial commit (`feat: initial commit for Viet Dub prototype`).
 - Now:
-  - Initialize local git repository, commit files, and obtain GitHub remote repository URL.
+  - Awaiting GitHub repository URL from the user to configure remote and push.
 - Next:
-  - Add git remote origin.
-  - Push branch to GitHub.
+  - Set remote origin (`git remote add origin <url>`).
+  - Push to GitHub (`git push -u origin main`).
