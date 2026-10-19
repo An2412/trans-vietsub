@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+edge-tts
+deep-translator
+keyring>=25.6
+SecretStorage>=3.3; sys_platform == "linux"

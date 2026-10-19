@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Viet Dub</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { width: 340px; max-height: 600px; overflow-y: auto; margin: 0; padding: 14px; font: 13px system-ui, sans-serif; color: #202124; }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    h2 { font-size: 14px; margin: 16px 0 8px; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #999; margin-right: 6px; }
+    .dot.ok { background: #198754; }
+    .dot.err { background: #d33; }
+    label { display: block; font-weight: 600; margin: 9px 0 4px; }
+    input, select { width: 100%; border: 1px solid #c7c9cc; border-radius: 6px; padding: 8px; font: inherit; background: #fff; color: #202124; }
+    input[type="checkbox"] { width: auto; }
+    input[type="password"] { letter-spacing: 0.03em; }
+    button { border: 1px solid #c7c9cc; border-radius: 6px; padding: 7px 10px; cursor: pointer; font: inherit; background: #f8f9fa; }
+    button.primary { background: #1967d2; border-color: #1967d2; color: #fff; }
+    button.danger { color: #a32121; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .buttons { display: flex; gap: 7px; margin-top: 10px; }
+    .buttons button { flex: 1; }
+    .note { font-size: 11px; line-height: 1.45; color: #5f6368; margin-top: 8px; }
+    .message { min-height: 18px; margin: 8px 0; line-height: 1.4; font-size: 12px; overflow-wrap: anywhere; }
+    .message.ok { color: #137333; }
+    .message.err { color: #b3261e; }
+    .message.warn { color: #8a5a00; }
+    .divider { border: 0; border-top: 1px solid #e0e0e0; margin: 14px 0; }
+  </style>
+</head>
+<body>
+  <h1>Viet Dub</h1>
+  <div class="row">
+    <span><span id="dot" class="dot"></span><span id="status">Chưa kiểm tra server</span></span>
+    <button id="recheck" type="button">Kiểm tra</button>
+  </div>
+  <div class="row">
+    <label for="toggle" style="margin:0">Bật lồng tiếng</label>
+    <input id="toggle" type="checkbox" />
+  </div>
+
+  <hr class="divider" />
+  <h2>Nhà cung cấp dịch thuật</h2>
+  <label for="provider">Provider</label>
+  <select id="provider">
+    <option value="gemini">Google Gemini</option>
+    <option value="openai">OpenAI GPT</option>
+    <option value="anthropic">Anthropic Claude</option>
+    <option value="ollama">Ollama Cloud</option>
+  </select>
+
+  <label for="model">Model ID</label>
+  <input id="model" type="text" autocomplete="off" spellcheck="false" />
+
+  <label for="apiKey">API key</label>
+  <input id="apiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="Dán key tại đây; không lưu trong Chrome" />
+
+  <div id="keyStatus" class="message">Chưa tải trạng thái khóa. Bấm “Kiểm tra” để đọc cấu hình đã lưu.</div>
+  <div class="buttons">
+    <button id="testApi" type="button">Kiểm tra API</button>
+    <button id="saveConfig" type="button" class="primary">Lưu cấu hình</button>
+  </div>
+  <div class="row" style="justify-content:flex-end; margin-top:7px">
+    <button id="clearConfig" type="button" class="danger">Xóa cấu hình &amp; khóa</button>
+  </div>
+  <div id="apiStatus" class="message" role="status" aria-live="polite"></div>
+  <div class="note">Khóa chỉ được gửi tới server cục bộ và lưu trong kho bí mật của hệ điều hành. Không lưu vào Chrome, SQLite, mã nguồn hay log. “Kiểm tra API” gửi một câu mẫu và có thể dùng quota/chi phí API.</div>
+  <div class="note">Gemini, OpenAI, Claude và Ollama có giao thức khác nhau; chỉ API key thuộc đúng provider mới dùng được. Nếu chưa cấu hình provider, server dùng dịch vụ miễn phí có thể bị giới hạn.</div>
+  <script src="popup.js"></script>
+</body>
+</html>
