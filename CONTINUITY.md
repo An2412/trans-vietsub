@@ -26,6 +26,11 @@ Push the current project (`youtube-viet-dub`) to GitHub.
   - Pushed branch `main` to GitHub (`git push -u origin main`) successfully.
   - Verified Windows compatibility: codebase already includes `install.bat`, `start-server.bat`, Windows Credential Manager support in `provider_settings.py`, and multi-platform `requirements.txt`.
 - Now:
-  - Answered user inquiry regarding Windows setup and adjustments.
+  - Fixed CC audio pause-and-resume stuttering issue:
+    - Analyzed root causes: hard video pause when nextCue.start <= now + 0.25, single-worker starvation (MAX_PARALLEL = 1), deadlock in resumeIfReady() across sentence gaps (>0.5s), and zero tolerance on cue due timings.
+    - Implemented Adaptive Speech Rate Scaling algorithm (clamped between 0.95x and 1.35x of video rate) to automatically fit spoken Vietnamese audio inside the CC duration window with pitch preservation.
+    - Implemented audio preloading and zero-delay chained playback between cues.
+    - Increased prefetch parallelism to 3 concurrent workers and added a 0.4s grace period before video pause.
+    - Added natural pause segmentation (gap >= 0.65s) in buildCues to avoid overly long run-on captions.
 - Next:
-  - Ready for any feature additions or testing.
+  - Test playback on YouTube with live extension.

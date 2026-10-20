@@ -1,17 +1,20 @@
 const TAG = "[VietDub]";
-const MAX_PARALLEL = 1;
+const MAX_PARALLEL = 3; // Tăng lên 3 luồng tải audio song song để đệm trước không bị rỗng
 const PREFETCH_BASE_WALL_S = 60;
 const PREFETCH_MAX_MEDIA_S = 150;
 const MAX_LATE_S = 6;
 const CAPTION_WAIT_MS = 15000;
 const BATCH_SIZE = 8; // số câu gom vào một request dịch
 const MAX_RETRIES = 2; // thử lại thêm 2 lần sau request đầu tiên
+const AUDIO_GRACE_PERIOD_S = 0.4; // Vùng đệm 0.4s để tải kịp audio trước khi buộc dừng video
+const MAX_SPEED_FACTOR = 1.35; // Giới hạn tăng tốc tối đa để câu đọc vừa vặn vào khung phụ đề
+const MIN_SPEED_FACTOR = 0.95; // Giới hạn giảm tốc tối thiểu
 const CLIENT_AUDIO_CACHE_MAX_ENTRIES = 128;
 const CLIENT_AUDIO_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const CLIENT_CACHE_DB_NAME = "vietdub-audio-cache-v1";
 
 let enabled = false;
-let cues = []; // { start, end, en, state, audio, vi }
+let cues = []; // { start, end, en, state, audio, vi, audioElement, audioUrl, duration }
 let loadedFor = "";
 let generation = 0;
 let currentAudio = null;
@@ -389,9 +392,77 @@ function updateVideoRateUi(value) {
   }
 }
 
+function b64ToUrl(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+}
+
+function preloadCueAudio(cue) {
+  if (!cue || !cue.audio || cue.audioElement) return;
+  try {
+    const url = b64ToUrl(cue.audio);
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    cue.audioUrl = url;
+    cue.audioElement = audio;
+    audio.addEventListener("loadedmetadata", () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        cue.duration = audio.duration;
+      }
+    }, { once: true });
+  } catch (error) {
+    console.warn(TAG, "Không thể preload audio cho câu:", error);
+  }
+}
+
+function cleanupCueAudio(cue) {
+  if (!cue) return;
+  if (cue.audioElement) {
+    cue.audioElement.onended = null;
+    cue.audioElement.onerror = null;
+    cue.audioElement.pause();
+    cue.audioElement.removeAttribute("src");
+    cue.audioElement.load();
+    cue.audioElement = null;
+  }
+  if (cue.audioUrl) {
+    URL.revokeObjectURL(cue.audioUrl);
+    cue.audioUrl = null;
+  }
+}
+
+function calculateAdaptivePlaybackRate(cue, naturalDuration, videoRate) {
+  const baseRate = Math.max(0.25, Number(videoRate) || 1);
+  if (!cue || !naturalDuration || naturalDuration <= 0) return baseRate;
+
+  const currentIndex = cues.indexOf(cue);
+  const nextCue = currentIndex >= 0
+    ? cues.slice(currentIndex + 1).find((c) => !["played", "skipped"].includes(c.state))
+    : null;
+
+  let windowSeconds = 0;
+  if (nextCue && nextCue.start > cue.start) {
+    windowSeconds = Math.max(0.6, nextCue.start - cue.start - 0.15);
+  } else if (cue.end > cue.start) {
+    windowSeconds = Math.max(0.6, cue.end - cue.start + 0.4);
+  } else {
+    return baseRate;
+  }
+
+  const requiredRate = (naturalDuration / windowSeconds) * baseRate;
+  const minRate = baseRate * MIN_SPEED_FACTOR;
+  const maxRate = baseRate * MAX_SPEED_FACTOR;
+
+  return Math.max(minRate, Math.min(maxRate, requiredRate));
+}
+
 function applyEffectiveSpeechRate() {
-  if (!currentAudio || currentAudio.ended) return;
-  currentAudio.playbackRate = getVideo()?.playbackRate || 1;
+  if (!currentAudio || currentAudio.ended || !currentCue) return;
+  const vRate = getVideo()?.playbackRate || 1;
+  const rate = calculateAdaptivePlaybackRate(currentCue, currentCue.duration || currentAudio.duration, vRate);
+  currentAudio.playbackRate = rate;
 }
 
 function prefetchWindow(video) {
@@ -446,15 +517,26 @@ function buildCues(events) {
 
   const out = [];
   let cur = null;
+  let prevWord = null;
   for (const word of words) {
-    if (!cur) cur = { start: word.t, end: word.t + word.d, en: word.text };
-    else {
-      cur.en += ` ${word.text}`;
-      cur.end = Math.max(cur.end, word.t + word.d);
+    const pauseGap = prevWord ? (word.t - (prevWord.t + prevWord.d)) : 0;
+    if (!cur) {
+      cur = { start: word.t, end: word.t + word.d, en: word.text };
+    } else {
+      // Nếu giữa 2 từ có khoảng lặng tự nhiên >= 0.65s và câu đã đủ dài, tách thành câu mới
+      if (pauseGap >= 0.65 && cur.en.length >= 20) {
+        out.push(cur);
+        cur = { start: word.t, end: word.t + word.d, en: word.text };
+      } else {
+        cur.en += ` ${word.text}`;
+        cur.end = Math.max(cur.end, word.t + word.d);
+      }
     }
-    if (/[.?!]["')\]]?$/.test(word.text) || cur.en.length > 220) {
+    prevWord = word;
+    if (/[.?!]["')\]]?$/.test(word.text) || cur.en.length > 200) {
       out.push(cur);
       cur = null;
+      prevWord = null;
     }
   }
   if (cur) out.push(cur);
@@ -465,7 +547,7 @@ function buildCues(events) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).map((cue) => ({ ...cue, state: "new", audio: null, vi: "" }));
+  }).map((cue) => ({ ...cue, state: "new", audio: null, vi: "", audioElement: null, audioUrl: null, duration: 0 }));
 }
 
 async function loadCues() {
@@ -679,6 +761,7 @@ async function processCue(cue, myGeneration = generation) {
       cue.audio = cached.audio;
       cue.vi = cached.vi;
       cue.state = "ready";
+      preloadCueAudio(cue);
       if (!fatalError) refreshWorkingStatus();
       resumeIfReady();
       return;
@@ -716,6 +799,7 @@ async function processCue(cue, myGeneration = generation) {
         cue.vi = result.text || "";
         rememberCueAudio(cue.en, cue.audio, cue.vi);
         cue.state = "ready";
+        preloadCueAudio(cue);
         if (!fatalError) refreshWorkingStatus();
         resumeIfReady();
         return;
@@ -806,16 +890,21 @@ function resumeIfReady() {
   const video = getVideo();
   if (!video) return;
   const now = video.currentTime;
-  const dueCue = cues.find((cue) => !["played", "skipped"].includes(cue.state) && cue.start <= now + 0.5 && cue.end + MAX_LATE_S >= now);
-  if (!dueCue) return;
-  if (dueCue.state === "failed") {
-    pauseForError(dueCue, "translation_or_tts_failed");
-    return;
+
+  // Kiểm tra xem có câu nào đang đến lượt (hoặc trễ) mà chưa có audio không
+  const dueCue = cues.find((cue) => !["played", "skipped"].includes(cue.state) && cue.start <= now + 0.25 && cue.end + MAX_LATE_S >= now);
+  if (dueCue) {
+    if (dueCue.state === "failed") {
+      pauseForError(dueCue, "translation_or_tts_failed");
+      return;
+    }
+    if (!dueCue.audio) {
+      prefetchTick(true);
+      return;
+    }
   }
-  if (!dueCue.audio) {
-    prefetchTick(true);
-    return;
-  }
+
+  // Không có câu nào đang kẹt chờ audio hoặc câu đến hạn đã sẵn sàng: mở lại video
   autoPaused = false;
   video.play().catch(() => {
     autoPaused = true;
@@ -848,33 +937,51 @@ function toggleDubbing() {
 }
 
 // ---------- Phát đúng thời điểm ----------
-function b64ToUrl(b64) {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
-}
-
 function playCue(cue, now) {
-  const url = b64ToUrl(cue.audio);
+  let audio = cue.audioElement;
+  let url = cue.audioUrl;
+  if (!audio) {
+    url = b64ToUrl(cue.audio);
+    audio = new Audio(url);
+    audio.preload = "auto";
+    cue.audioUrl = url;
+    cue.audioElement = audio;
+  }
+
   currentAudioUrl = url;
-  const audio = new Audio(url);
-  audio.preload = "auto";
-  audio.playbackRate = getVideo()?.playbackRate || 1;
+  const vRate = getVideo()?.playbackRate || 1;
+  const naturalDuration = cue.duration || (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
+  const effectiveRate = calculateAdaptivePlaybackRate(cue, naturalDuration, vRate);
+
+  audio.playbackRate = effectiveRate;
+  audio.preservesPitch = true;
+
   const finish = () => {
-    URL.revokeObjectURL(url);
     if (currentAudio === audio) {
       currentAudio = null;
       currentAudioUrl = null;
       currentCue = null;
+      cleanupCueAudio(cue);
       resumeIfReady();
+
+      // Chuyển câu mượt không độ trễ: nếu câu tiếp theo đã tới hạn thì phát luôn
+      const v = getVideo();
+      if (v && !v.paused && enabled && scriptLoaded && !fatalError) {
+        const nextNow = v.currentTime;
+        const nextDue = cues.find((c) => !["played", "skipped"].includes(c.state) && c.start <= nextNow && c.end + MAX_LATE_S >= nextNow);
+        if (nextDue && nextDue.audio) {
+          playCue(nextDue, nextNow);
+        }
+      }
     }
   };
+
   audio.onended = finish;
   audio.onerror = finish;
   currentAudio = audio;
   currentCue = cue;
   cue.state = "played";
+
   audio.play().catch((error) => {
     console.warn(TAG, "Không phát được âm thanh:", error.message);
     finish();
@@ -887,6 +994,8 @@ function playTick() {
   const video = getVideo();
   if (!video || video.paused) return;
   const now = video.currentTime;
+  const vRate = video.playbackRate || 1;
+
   if (currentAudio && !currentAudio.ended) {
     if (currentAudio.paused) {
       currentAudio.play().catch(() => {});
@@ -894,10 +1003,26 @@ function playTick() {
     }
     const currentIndex = cues.indexOf(currentCue);
     const nextCue = cues.slice(currentIndex + 1).find((cue) => !["played", "skipped"].includes(cue.state));
-    if (nextCue && nextCue.start <= now + 0.25) {
-      autoPaused = true;
-      video.pause();
-      setStatus("Đang chờ câu đọc hiện tại kết thúc; video tạm dừng để không vượt phụ đề…", "working");
+    if (nextCue && nextCue.start <= now + 0.3) {
+      const dur = currentAudio.duration;
+      const curTime = currentAudio.currentTime;
+      const currentRate = currentAudio.playbackRate || vRate;
+      const remainingAudioSeconds = (Number.isFinite(dur) && dur > 0)
+        ? Math.max(0, (dur - curTime) / currentRate)
+        : 0.5;
+
+      // Nếu chỉ còn một chút audio (<= 0.75s), tăng tốc nhẹ câu hiện tại để hoàn tất êm thay vì dừng video
+      if (remainingAudioSeconds <= 0.75) {
+        currentAudio.playbackRate = Math.min(vRate * 1.45, currentRate * 1.15);
+        return;
+      }
+
+      // Chỉ dừng video khi audio câu trước còn quá dài (> 0.75s) VÀ video đã trôi qua điểm bắt đầu câu sau
+      if (now >= nextCue.start + 0.25) {
+        autoPaused = true;
+        video.pause();
+        setStatus("Đang chờ câu đọc hiện tại kết thúc; video tạm dừng để không vượt phụ đề…", "working");
+      }
     }
     return;
   }
@@ -915,6 +1040,11 @@ function playTick() {
     }
     if (cue.audio) {
       playCue(cue, now);
+      return;
+    }
+    // Cho phép vùng đệm 0.4s để tải audio trước khi buộc dừng video
+    if (now - cue.start < AUDIO_GRACE_PERIOD_S) {
+      if (cue.state === "new") processCue(cue, generation);
       return;
     }
     pauseForWait(cue);
@@ -939,8 +1069,15 @@ function resetPlayback() {
   const video = getVideo();
   const now = video ? video.currentTime : 0;
   for (const cue of cues) {
-    if (cue.end + MAX_LATE_S < now) cue.state = "skipped";
-    else cue.state = cue.audio ? "ready" : (cue.state === "loading" ? "loading" : "new");
+    if (cue.end + MAX_LATE_S < now) {
+      cue.state = "skipped";
+      cleanupCueAudio(cue);
+    } else {
+      cue.state = cue.audio ? "ready" : (cue.state === "loading" ? "loading" : "new");
+      if (cue.audio && !cue.audioElement) {
+        preloadCueAudio(cue);
+      }
+    }
   }
   if (ui && scriptLoaded) ui.start.disabled = false;
 }
@@ -971,6 +1108,9 @@ function resetForNavigation() {
   autoPaused = false;
   fatalError = false;
   adActive = false;
+  for (const cue of cues) {
+    cleanupCueAudio(cue);
+  }
   cues = [];
   loadedFor = "";
   boundVideo = null;
