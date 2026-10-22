@@ -116,8 +116,10 @@ Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa
 
 1. Vào [Google Cloud Console](https://console.cloud.google.com) → tạo project → bật **Google Docs API** và **Google Drive API**.
 2. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
-3. Loại ứng dụng: **Desktop app** (bắt buộc — client ID dạng web không dùng được redirect `127.0.0.1`).
-4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback`.
+3. Loại ứng dụng: **Web application** (server local của Viet Dub giữ client secret nên đóng
+   vai trò *confidential client* — đây là loại client đúng cho kiểu chạy này; loại
+   *Desktop app* cũng dùng được nhưng không cần thiết).
+4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback` (bấm **Save**).
 5. Mở mục **“Cài đặt lần đầu”** trong popup → dán *Client ID* và *Client Secret* → **Lưu client**.
 6. Bấm lại **Tiếp tục với Google**.
 

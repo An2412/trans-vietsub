@@ -277,7 +277,13 @@ def create_or_get_lesson_doc(title: str, summary_markdown: str) -> str:
     token = get_valid_access_token()
 
     # --- Find or create "Viet Dub Notes" folder ---
-    folder_id = _find_or_create_folder("Viet Dub Notes", token)
+    # Bước này cần Drive API; nếu API chưa bật thì bỏ qua (tài liệu vẫn được tạo
+    # ở thư mục gốc của My Drive) — lỗi Drive không được làm hỏng việc xuất Docs.
+    folder_id = ""
+    try:
+        folder_id = _find_or_create_folder("Viet Dub Notes", token)
+    except RuntimeError as error:
+        log.warning("gdocs_folder_skipped detail=%s", str(error)[:160])
 
     # --- Create new doc in that folder ---
     doc_meta = _api_request(
@@ -289,15 +295,16 @@ def create_or_get_lesson_doc(title: str, summary_markdown: str) -> str:
     doc_id = doc_meta["documentId"]
 
     # Move doc to folder (lỗi di chuyển không được làm hỏng nội dung đã tạo).
-    try:
-        _api_request(
-            "PATCH",
-            f"https://www.googleapis.com/drive/v3/files/{doc_id}?addParents={folder_id}&removeParents=root",
-            {},
-            token,
-        )
-    except RuntimeError as error:
-        log.warning("gdocs_move_to_folder_failed detail=%s", str(error)[:160])
+    if folder_id:
+        try:
+            _api_request(
+                "PATCH",
+                f"https://www.googleapis.com/drive/v3/files/{doc_id}?addParents={folder_id}&removeParents=root",
+                {},
+                token,
+            )
+        except RuntimeError as error:
+            log.warning("gdocs_move_to_folder_failed detail=%s", str(error)[:160])
 
     # Insert formatted content
     requests = _markdown_to_docs_requests(title, summary_markdown)

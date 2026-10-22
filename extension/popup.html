@@ -128,8 +128,8 @@
       <ol>
         <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
         <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
-        <li>Loại ứng dụng: <strong>Desktop app</strong> (bắt buộc, để dùng được redirect <code>127.0.0.1</code>).</li>
-        <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>.</li>
+        <li>Loại ứng dụng: <strong>Web application</strong> (server local giữ client secret nên đóng vai trò confidential client; <em>Desktop app</em> cũng dùng được).</li>
+        <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>, rồi bấm <strong>Save</strong>.</li>
         <li>Dán Client ID + Client Secret vào ô bên dưới, bấm “Lưu client”, rồi bấm lại “Đăng nhập Google”.</li>
       </ol>
       <label for="googleClientId">OAuth Client ID</label>

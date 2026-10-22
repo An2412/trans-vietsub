@@ -400,39 +400,73 @@ def save_google_client_config(req: GoogleClientConfigReq):
     return {"ok": True, "message": "Đã lưu OAuth client ID vào kho bí mật."}
 
 
+# Lỗi OAuth gần nhất — để popup hiển thị lý do thất bại mà không cần đọc log.
+_last_oauth_error: str = ""
+
+
 @app.get("/google-auth/status")
 def google_auth_status():
     status = gauth.get_auth_status()
     # Popup dùng cờ này để biết đã sẵn sàng cho nút "Đăng nhập Google" hay chưa.
     status["client_configured"] = gauth.is_client_configured()
+    status["last_error"] = _last_oauth_error
     return status
 
 
 @app.get("/google-auth/url")
 def google_auth_url():
+    global _last_oauth_error
     try:
         url, _state = gauth.build_auth_url()
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from None
+    # Bắt đầu lượt đăng nhập mới thì xoá lỗi cũ cho khỏi báo nhầm.
+    _last_oauth_error = ""
     return {"url": url}
 
 
 @app.get("/google-auth/callback")
-async def google_auth_callback(code: str = "", state: str = "", error: str = ""):
+async def google_auth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+):
     """Browser redirect target after Google OAuth consent screen."""
+    global _last_oauth_error
     from fastapi.responses import HTMLResponse
     if error:
+        _last_oauth_error = f"{error}: {error_description}".strip(": ")
+        log.warning("google_auth_denied error=%s desc=%s", error, (error_description or "")[:200])
         html = f"""<!doctype html><html><head><meta charset="utf-8"/>
-<title>Viet Dub – Đăng nhập thất bại</title></head><body>
-<h2>&#10060; Đăng nhập Google thất bại</h2><p>{error}</p>
-<p>Đóng tab này và thử lại trong popup Viet Dub.</p>
-</body></html>"""
+<title>Viet Dub – Đăng nhập thất bại</title>
+<style>body{{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f1f3f4;}}
+.card{{background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.1);max-width:520px;}}
+h2{{color:#b3261e;margin:0 0 12px;}} p{{color:#444;line-height:1.5;}} code{{background:#f1f3f4;padding:2px 5px;border-radius:4px;}}
+small{{color:#888;}}</style></head><body>
+<div class="card">
+<h2>&#10060; Google không cấp quyền</h2>
+<p><strong>Mã lỗi:</strong> <code>{error}</code></p>
+<p>{error_description or "Không có mô tả thêm."}</p>
+<p>Viet Dub cần quyền <em>Google Docs</em> + <em>Drive</em> để lưu bản tóm tắt.<br>
+Đóng tab này, kiểm tra lại <em>OAuth consent screen</em> (Test users) rồi bấm
+<strong>Tiếp tục với Google</strong> lần nữa.</p>
+</div></body></html>"""
         return HTMLResponse(html, status_code=400)
     if not code:
-        raise HTTPException(status_code=400, detail="Thiếu code từ Google.")
+        _last_oauth_error = "Thiếu mã xác thực từ Google (code rỗng)."
+        log.warning("google_auth_callback_without_code state=%s", (state or "")[:40])
+        html = """<!doctype html><html><head><meta charset="utf-8"/>
+<title>Viet Dub – Thiếu mã</title></head><body>
+<h2>&#10060; Thiếu mã xác thực</h2>
+<p>Địa chỉ này chỉ dùng được sau khi Google chuyển hướng về từ trang đăng nhập.</p>
+<p>Đóng tab này, mở popup Viet Dub và bấm <strong>Tiếp tục với Google</strong>.</p>
+</body></html>"""
+        return HTMLResponse(html, status_code=400)
     try:
         token_data = await asyncio.to_thread(gauth.exchange_code, code, state)
     except Exception as exc:
+        _last_oauth_error = str(exc)[:300]
         log.error("google_auth_callback_failed error=%s", str(exc)[:200])
         html = f"""<!doctype html><html><head><meta charset="utf-8"/>
 <title>Viet Dub – Lỗi</title></head><body>
@@ -440,6 +474,7 @@ async def google_auth_callback(code: str = "", state: str = "", error: str = "")
 <p>Đóng tab này và thử lại.</p></body></html>"""
         return HTMLResponse(html, status_code=400)
     email = token_data.get("email", "")
+    _last_oauth_error = ""
     html = f"""<!doctype html><html><head><meta charset="utf-8"/>
 <title>Viet Dub – Đã kết nối</title>
 <style>body{{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f1f3f4;}}

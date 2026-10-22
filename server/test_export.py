@@ -101,10 +101,39 @@ def test_summarize_long():
     print(f"  summary dài length: {len(out)} ký tự")
 
 
+def test_docs_export_survives_drive_failure():
+    """Drive API lỗi (chưa bật) không được làm hỏng việc tạo Google Docs."""
+    calls = []
+
+    def fake_api_request(method, url, body=None, access_token=""):
+        calls.append((method, url))
+        if "drive/v3" in url:
+            raise RuntimeError("Google API error HTTP 403: SERVICE_DISABLED")
+        if "documents" in url and method == "POST" and "batchUpdate" not in url:
+            return {"documentId": "doc-xyz"}
+        return {}
+
+    original_request = google_auth._api_request
+    original_token = google_auth.get_valid_access_token
+    google_auth._api_request = fake_api_request
+    google_auth.get_valid_access_token = lambda: "fake-token"
+    try:
+        url = google_auth.create_or_get_lesson_doc("Bài học", SAMPLE)
+    finally:
+        google_auth._api_request = original_request
+        google_auth.get_valid_access_token = original_token
+
+    assert url.endswith("/d/doc-xyz/edit"), url
+    # Vẫn phải gọi Docs API để tạo doc và chèn nội dung.
+    assert any("documents" in url_ for _, url_ in calls), calls
+    print("  docs export: tạo được tài liệu dù Drive API lỗi")
+
+
 if __name__ == "__main__":
     for name, fn in [
         ("notion_blocks", test_notion_blocks),
         ("docs_requests", test_docs_requests),
+        ("docs_export_survives_drive_failure", test_docs_export_survives_drive_failure),
         ("summarize", test_summarize),
         ("summarize_long", test_summarize_long),
     ]:

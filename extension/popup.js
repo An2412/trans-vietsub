@@ -321,7 +321,10 @@ async function refreshGoogleStatus() {
       googleLogin.hidden = true;
     } else {
       googleLogin.hidden = false;
-      if (data.client_configured) {
+      if (data.last_error) {
+        // Lần đăng nhập trước đã bị Google từ chối — hiện lý do để không phải đoán.
+        setMessage(googleStatus, "err", `Lần đăng nhập trước thất bại: ${data.last_error}`);
+      } else if (data.client_configured) {
         setMessage(
           googleStatus,
           "warn",
