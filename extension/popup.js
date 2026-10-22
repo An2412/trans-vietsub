@@ -319,6 +319,16 @@ async function loginGoogle() {
   setMessage(googleStatus, "warn", "Đang mở trang đăng nhập Google...");
   try {
     const { response, data } = await requestJson("/google-auth/url", { method: "GET" });
+    if (response.status === 404) {
+      // 404 ở đây nghĩa là server đang chạy không có route này (bản cũ), không phải lỗi Google.
+      setMessage(
+        googleStatus,
+        "err",
+        "Server đang chạy thiếu endpoint /google-auth/url (nhiều khả năng là bản cũ). " +
+          "Tắt cửa sổ server rồi khởi động lại từ thư mục dự án."
+      );
+      return;
+    }
     if (!response.ok || !data.url) {
       setMessage(googleStatus, "err", data.detail || "Chưa cấu hình OAuth client.");
       return;

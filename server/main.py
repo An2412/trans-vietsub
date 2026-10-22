@@ -230,6 +230,21 @@ def health():
     }
 
 
+@app.get("/version")
+def version():
+    """Chẩn đoán: server đang chạy có đủ route OAuth không (tránh nhầm với bản cũ)."""
+    paths = sorted({getattr(route, "path", "") for route in app.routes})
+    oauth_paths = [path for path in paths if path.startswith("/google-auth")]
+    return {
+        "app": "viet-dub",
+        "oauth_routes": oauth_paths,
+        "oauth_complete": "/google-auth/url" in oauth_paths
+        and "/google-auth/callback" in oauth_paths,
+        "client_configured": gauth.is_client_configured(),
+        "redirect_uri": gauth.REDIRECT_URI if hasattr(gauth, "REDIRECT_URI") else "",
+    }
+
+
 def provider_error_message(error: Exception) -> tuple[str, str]:
     status = getattr(error, "status_code", None)
     if status == 401:
