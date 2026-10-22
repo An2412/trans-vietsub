@@ -91,6 +91,20 @@ async function checkServer() {
       return;
     }
     setServerStatus("ok", "Server đang chạy");
+    // Xác nhận server có đủ route OAuth, để 404 khi đăng nhập không bị nhầm là lỗi Google.
+    try {
+      const versionResult = await requestJson("/version");
+      if (versionResult.response.status === 404) {
+        setServerStatus("err", "Server là bản cũ — thiếu /version. Khởi động lại để dùng đăng nhập Google.");
+      } else if (!versionResult.data.oauth_complete) {
+        setServerStatus(
+          "err",
+          `Server thiếu/dư route OAuth: ${(versionResult.data.oauth_routes || []).join(", ")}`
+        );
+      }
+    } catch (_) {
+      setServerStatus("warn", "Server đang chạy (đang đổi bản?)");
+    }
     const configResult = await requestJson("/provider-config");
     if (!configResult.response.ok) {
       setMessage(keyStatus, "err", configResult.data.detail || "Không đọc được trạng thái cấu hình provider.");
@@ -314,19 +328,34 @@ async function saveGoogleClient() {
   }
 }
 
+async function describeStaleServer() {
+  try {
+    const { response, data } = await requestJson("/version");
+    if (response.ok) {
+      const routes = (data.oauth_routes || []).join(", ") || "(không có route nào)";
+      return data.oauth_complete
+        ? `Server có đủ route OAuth (${routes}) nhưng /google-auth/url vẫn phản hồi 404. Tắt server rồi khởi động lại.`
+        : `Server đang chạy là bản cũ — thiếu route OAuth. Route hiện có: ${routes}. Tắt server rồi khởi động lại.`;
+    }
+  } catch (_) { /* bỏ qua, dùng thông báo mặc định */ }
+  return "Server đang chạy không có /google-auth/url (nhiều khả năng là bản cũ). " +
+    "Tắt cửa sổ server rồi khởi động lại từ thư mục dự án.";
+}
+
 async function loginGoogle() {
   googleLogin.disabled = true;
   setMessage(googleStatus, "warn", "Đang mở trang đăng nhập Google...");
   try {
-    const { response, data } = await requestJson("/google-auth/url", { method: "GET" });
+    let attempt = await requestJson("/google-auth/url", { method: "GET" });
+    if (attempt.response.status === 404) {
+      // Server có thể đang được khởi động lại — chờ một chút rồi thử lại một lần.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      attempt = await requestJson("/google-auth/url", { method: "GET" });
+    }
+    const { response, data } = attempt;
     if (response.status === 404) {
       // 404 ở đây nghĩa là server đang chạy không có route này (bản cũ), không phải lỗi Google.
-      setMessage(
-        googleStatus,
-        "err",
-        "Server đang chạy thiếu endpoint /google-auth/url (nhiều khả năng là bản cũ). " +
-          "Tắt cửa sổ server rồi khởi động lại từ thư mục dự án."
-      );
+      setMessage(googleStatus, "err", await describeStaleServer());
       return;
     }
     if (!response.ok || !data.url) {

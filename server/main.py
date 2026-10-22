@@ -442,6 +442,7 @@ def google_auth_url():
 
 @app.get("/google-auth/callback")
 async def google_auth_callback(
+    request: Request,
     code: str = "",
     state: str = "",
     error: str = "",
@@ -469,14 +470,23 @@ small{{color:#888;}}</style></head><body>
 </div></body></html>"""
         return HTMLResponse(html, status_code=400)
     if not code:
+        received = sorted(request.query_params.keys())
+        keys_label = ", ".join(received) if received else "(trống)"
         _last_oauth_error = "Thiếu mã xác thực từ Google (code rỗng)."
-        log.warning("google_auth_callback_without_code state=%s", (state or "")[:40])
-        html = """<!doctype html><html><head><meta charset="utf-8"/>
-<title>Viet Dub – Thiếu mã</title></head><body>
+        log.warning("google_auth_callback_without_code keys=%s", keys_label)
+        html = f"""<!doctype html><html><head><meta charset="utf-8"/>
+<title>Viet Dub – Thiếu mã</title>
+<style>body{{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f1f3f4;}}
+.card{{background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.1);max-width:520px;}}
+h2{{color:#b3261e;margin:0 0 12px;}} p{{color:#444;line-height:1.5;}}
+code{{background:#f1f3f4;padding:2px 5px;border-radius:4px;}}</style></head><body>
+<div class="card">
 <h2>&#10060; Thiếu mã xác thực</h2>
-<p>Địa chỉ này chỉ dùng được sau khi Google chuyển hướng về từ trang đăng nhập.</p>
-<p>Đóng tab này, mở popup Viet Dub và bấm <strong>Tiếp tục với Google</strong>.</p>
-</body></html>"""
+<p>Địa chỉ này chỉ hợp lệ khi Google chuyển hướng về từ trang đăng nhập.</p>
+<p><strong>Tham số nhận được:</strong> <code>{keys_label}</code></p>
+<p>Không có tham số nào nghĩa là tab này được mở thẳng vào địa chỉ callback mà không
+qua Google. Đóng tab, mở popup Viet Dub và bấm <strong>Tiếp tục với Google</strong>.</p>
+</div></body></html>"""
         return HTMLResponse(html, status_code=400)
     try:
         token_data = await asyncio.to_thread(gauth.exchange_code, code, state)
