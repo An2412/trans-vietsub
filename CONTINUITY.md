@@ -77,28 +77,50 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
     luồng Tóm tắt (tự dịch → gửi message → hiện kết quả + link).
 - **Đã cấu hình sẵn trên máy này**: OAuth Client ID/Secret của user đã lưu vào
   Windows Credential Manager (`viet-dub-google`). Auth URL sinh đúng.
+- **Lỗi `CredWrite` 1783 đã được chẩn đoán bằng dữ liệu thật**: ghi thử blob tăng dần
+  qua keyring trên chính máy user — ≤1024 byte OK, ~1,5–2 KB bị chặn đúng lỗi
+  `(1783, 'CredWrite', 'The stub received bad data')` mà user gặp. Nguyên nhân:
+  `save_tokens()` cũ lưu **toàn bộ** phản hồi token của Google, trong đó `id_token`
+  là JWT ~1200 ký tự (không bao giờ được đọc lại). Đã sửa: chỉ lưu `access_token`,
+  `refresh_token`, `expires_in`, `email`, `saved_at`; từ chối ghi sẽ bắt lỗi và ném
+  thông báo tiếng Việt rõ ràng. Kiểm chứng end-to-end: blob đầy đủ 1653 byte tái
+  hiện lỗi 1783, bản rút gọn ghi OK, vòng lặp đọc-ghi đúng, xoá sạch sau đó.
+  Đây cũng là nguyên nhân vì sao trước đó thử lưu token rác "at" không thấy để lại
+  dấu vết đọc được.
+- `google_auth.py:get_valid_access_token()` giờ giữ lại `email` khi refresh
+  (Google không trả email trong refresh response — trước kia email biến mất
+  sau lần refresh đầu).
 
 ### Verified
 - `python -m py_compile` toàn bộ server OK.
-- `unittest discover` : 31 test, chỉ 1 lỗi **có sẵn từ trước** ở
+- `unittest discover` : 32 test, chỉ 1 lỗi **có sẵn từ trước** ở
   `test_provider_settings.test_secret_is_not_written_to_sqlite_and_is_not_returned`
   (Windows khoá file sqlite khi xoá temp dir — không liên quan thay đổi này).
-- Server chạy thật: `/health`, `/google-auth/*`, `/notion/*`, `/summarize` trả đúng mã lỗi.
+- Server chạy thật: `/health`, `/version`, `/google-auth/*`, `/notion/*`, `/summarize` trả đúng mã lỗi.
+- Lưu token thật bị rút gọn qua keyring: ghi/read/xoá OK trên máy user (xem Progress State).
+- Shell của agent từng mất toàn bộ stdout (mọi lệnh đều "(no output)"); xử lý bằng
+  cách redirect output vào file rồi đọc lại bằng tool read. Nếu tái diễn: dùng
+  `cmd /c "... > check.txt 2>&1"` rồi đọc file đó.
 - `node --check` cho `content.js`, `background.js`, `popup.js` OK.
+- `tests/check-wiring.js` + `tests/jsdom/smoke.js` pass toàn bộ.
 
 ### Next (việc user cần tự làm)
-1. **Google Cloud Console**: bật `Google Docs API` + `Google Drive API`, và thêm
-   Authorized redirect URI `http://127.0.0.1:8765/google-auth/callback` cho OAuth client
-   (loại **Web application** — server giữ client secret nên là confidential client).
-   Đã kiểm tra thật: Google chấp nhận cặp client_id + redirect_uri này.
-2. **Google Auth Platform → Test users**: thêm email của user, nếu không sẽ bị
-   `access_denied` ở chế độ Testing.
-3. Mở popup → **Tiếp tục với Google** → chọn tài khoản → duyệt quyền Docs/Drive
-   (popup tự cập nhật trạng thái, không cần bấm lại).
-4. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
-5. Reload extension tại `chrome://extensions` để nhận code mới.
-6. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.
-7. Commit & push.
+1. **Google Auth Platform → Khách gia (Audience) → Người dùng thử**: thêm
+   `an.207ct68609@gmail.com` — đã xong bước này (lỗi `403 access_denied` trước đó
+   chính là vì thiếu test user; đã khắc phục).
+2. Reload extension tại `chrome://extensions` (↻) — popup có thêm bảng tra lỗi
+   đăng nhập và nút **Kiểm tra** giờ hiển thị "bản mới / bản cũ" của server.
+3. Mở popup → **Tiếp tục với Google** → chọn tài khoản → duyệt quyền (sẽ thấy
+   cảnh báo "chưa xác minh" → **Nâng cao → Đến tran-sub (không an toàn)** — bình
+   thường ở chế độ Testing). Trang callback giờ hiển thị "✔ Đã kết nối Google".
+   Token được lưu rút gọn nên không còn lỗi CredWrite 1783.
+4. Nếu vẫn lỗi: tra theo bảng lỗi đăng nhập Google trong README, hoặc gửi URL
+   trang lỗi (không chứa secret).
+5. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
+6. Lưu API key AI (Gemini/OpenAI/Claude) trong popup — cần cho `/summarize`
+   (hiện đang trả 400 vì chưa có provider AI).
+7. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.
+8. Commit & push.
 
 ### Phát hành cho người khác (đã ghi trong README)
 - Mỗi người dùng đăng nhập bằng Google account của chính họ.
