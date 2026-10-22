@@ -118,9 +118,14 @@
     <div class="row" style="justify-content:flex-end; margin-top:4px">
       <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
     </div>
-    <details class="guide">
-      <summary>Cài đặt lần đầu: tạo OAuth Client (chỉ làm 1 lần)</summary>
-      <p>Bấm “Đăng nhập Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
+    <details class="guide" id="googleSetup">
+      <summary id="googleSetupSummary">Cài đặt lần đầu: tạo OAuth Client (chỉ làm 1 lần)</summary>
+      <div class="note" id="googleSetupNote">
+        Bạn <strong>không cần điền gì ở đây</strong>. OAuth client đã được cấu hình sẵn
+        trên máy này — mở phần này chỉ khi bạn chuyển sang máy mới hoặc muốn dùng
+        OAuth client khác của chính bạn.
+      </div>
+      <p>Bấm “Tiếp tục với Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
         và chấp nhận quyền truy cập Google Docs / Drive — đó là bước duy nhất cần thiết
         để Viet Dub được ghi tóm tắt vào tài liệu của bạn.</p>
       <p>Nếu báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”,

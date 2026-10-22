@@ -315,6 +315,7 @@ async function refreshGoogleStatus() {
   try {
     const { response, data } = await requestJson("/google-auth/status", { method: "GET" });
     if (!response.ok) return null;
+    applyGoogleSetupHint(Boolean(data.client_configured));
     if (data.connected) {
       setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
       // Đã có tài khoản rồi thì không cần hiện nút đăng nhập nữa.
@@ -342,6 +343,20 @@ async function refreshGoogleStatus() {
   } catch (_) {
     setMessage(googleStatus, "err", "Không đọc được trạng thái Google (server chưa chạy?).");
     return null;
+  }
+}
+
+// Đổi nhãn mục cài đặt OAuth client để người dùng biết có phải điền hay không.
+function applyGoogleSetupHint(configured) {
+  const summary = document.getElementById("googleSetupSummary");
+  const note = document.getElementById("googleSetupNote");
+  if (summary) {
+    summary.textContent = configured
+      ? "OAuth client: đã cấu hình sẵn ✓ (bấm nếu muốn đổi)"
+      : "Cài đặt lần đầu: dán OAuth Client ID + Secret";
+  }
+  if (note) {
+    note.hidden = !configured;
   }
 }
 

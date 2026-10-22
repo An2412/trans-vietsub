@@ -109,6 +109,20 @@ Token truy cập và refresh token được lưu trong **kho bí mật của h�
 (`viet-dub-google`), không nằm trong Chrome storage, SQLite, mã nguồn hay log.
 Token tự được làm mới khi hết hạn; nút **Ngắt kết nối** xoá token.
 
+#### Vì sao có bước OAuth client? (giải thích ngắn)
+
+Các app thương mại (Notion, Manus…) không bắt bạn nhập gì vì chúng chạy trên server
+của họ: **một** OAuth client do nhà phát triển tạo, nhúng sẵn ở backend, mọi người dùng
+chỉ thấy nút “Tiếp tục với Google”.
+
+Viet Dub chạy server trên chính máy bạn, nên chủ dự án Google Cloud cũng chính là bạn.
+Client ID/Secret vì vậy phải nằm trong **kho bí mật của hệ điều hành** trên máy bạn —
+nhập **một lần**, sau đó popup không hỏi lại. Nếu client đã cấu hình, mục cài đặt trong
+popup sẽ hiện “OAuth client: đã cấu hình sẵn ✓” và bạn không cần điền gì.
+
+Muốn người khác cài xong là dùng được ngay (không nhập gì), xem mục *Chia sẻ cho người
+khác dùng* bên dưới: dùng client loại **Desktop app** rồi nhúng Client ID vào extension.
+
 #### Nếu báo lỗi khi đăng nhập (xử lý một lần)
 
 Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa là server chưa biết
