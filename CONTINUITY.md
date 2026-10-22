@@ -80,10 +80,21 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
 ### Next (việc user cần tự làm)
 1. **Google Cloud Console**: bật `Google Docs API` + `Google Drive API`, và thêm
    Authorized redirect URI `http://127.0.0.1:8765/google-auth/callback` cho OAuth client
-   Desktop app. Nếu thiếu bước này sẽ gặp `redirect_uri_mismatch`.
-2. Mở popup → **Đăng nhập Google** → chọn tài khoản → duyệt quyền Docs/Drive
+   (loại **Web application** — server giữ client secret nên là confidential client).
+   Đã kiểm tra thật: Google chấp nhận cặp client_id + redirect_uri này.
+2. **Google Auth Platform → Test users**: thêm email của user, nếu không sẽ bị
+   `access_denied` ở chế độ Testing.
+3. Mở popup → **Tiếp tục với Google** → chọn tài khoản → duyệt quyền Docs/Drive
    (popup tự cập nhật trạng thái, không cần bấm lại).
-3. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
-4. Reload extension tại `chrome://extensions` để nhận code mới.
-5. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.
-6. Commit & push.
+4. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
+5. Reload extension tại `chrome://extensions` để nhận code mới.
+6. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.
+7. Commit & push.
+
+### Phát hành cho người khác (đã ghi trong README)
+- Mỗi người dùng đăng nhập bằng Google account của chính họ.
+- Phải thêm email họ vào Test users; tối đa 100 tài khoản ở chế độ Testing.
+- Redirect URI là loopback cố định nên giống nhau mọi máy — không cần đăng ký lại.
+- Muốn mở cho công chúng: phải publish *In production* + xác minh sensitive scope
+  (3–5 ngày, cần trang chủ + privacy policy + video demo).
+- `client_secret` giờ là tuỳ chọn → hỗ trợ client Desktop app (ship sẵn Client ID).

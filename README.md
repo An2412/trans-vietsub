@@ -137,6 +137,32 @@ Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa
 
 Mỗi video tạo **một trang con** trong thư mục cha, có cùng cấu trúc 5 mục với Google Docs. Token và page ID lưu trong kho bí mật (`viet-dub-notion`).
 
+### Chia sẻ cho người khác dùng
+
+Mỗi người dùng đăng nhập bằng **Google account của chính họ** (tài liệu Google Docs
+tạo ra nằm trong tài khoản đó). Ngoài ra:
+
+1. **Họ vẫn phải chạy server local** — extension không tự chạy được server Python.
+2. **Bạn phải thêm email của họ vào Test users** (Google Cloud Console → Google Auth
+   Platform → Test users). Ở chế độ *Testing*, app chỉ cho tối đa **100 tài khoản**
+   đăng nhập và mọi người đều thấy màn hình cảnh báo “app chưa được Google xác minh”.
+3. **Client ID/Secret**: redirect URI là `http://127.0.0.1:8765/...` nên **giống nhau trên
+   mọi máy** — không cần đăng ký lại. Có 2 lựa chọn:
+   - *Web application* (hiện tại): client secret là secret thật → mỗi người dán client
+     riêng của họ vào popup, hoặc bạn chia sẻ secret cho vài người thân.
+   - *Desktop app*: Google coi client secret của client này là **không cần bảo mật**
+     (app cài trên máy không giữ được secret) → ship sẵn Client ID trong extension,
+     không cần secret. Server hiện đã hỗ trợ client không có secret.
+
+Nếu muốn **ai cũng dùng được, không giới hạn 100 người**, phải chuyển Publishing status
+sang *In production* và đi qua xác minh của Google — vì `documents` và `drive.file` là
+**sensitive scope** nên bắt buộc phải review trước khi mở cho người dùng chung. Việc này
+mất 3–5 ngày làm việc và cần: trang chủ công khai, chính sách bảo mật, branding, video demo.
+
+> Theo [chính sách của Google](https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification),
+> nếu app chỉ dùng cho bạn và vài người quen biết thì **không cần xác minh** — chỉ cần
+> thêm email vào Test users là chạy.
+
 ## Thông báo lỗi trong popup
 
 - **API key bị từ chối (401):** key sai, bị thu hồi hoặc không thuộc provider đã chọn.

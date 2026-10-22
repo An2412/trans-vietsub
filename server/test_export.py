@@ -129,11 +129,49 @@ def test_docs_export_survives_drive_failure():
     print("  docs export: tạo được tài liệu dù Drive API lỗi")
 
 
+def test_oauth_without_client_secret():
+    """Client loại Desktop app không có secret — không được gửi client_secret rỗng."""
+    sent = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"access_token":"at","expires_in":3600}'
+
+    def fake_urlopen(req, timeout=0):
+        sent["body"] = req.data.decode()
+        sent["url"] = req.full_url
+        return FakeResponse()
+
+    original_client = google_auth.get_client_config
+    original_urlopen = google_auth.urllib.request.urlopen
+    google_auth.get_client_config = lambda: ("client-abc.apps.googleusercontent.com", "")
+    google_auth.urllib.request.urlopen = fake_urlopen
+    google_auth._pending_state = "st"
+    try:
+        google_auth.exchange_code("code-123", "st")
+    finally:
+        google_auth.get_client_config = original_client
+        google_auth.urllib.request.urlopen = original_urlopen
+        google_auth._pending_state = ""
+
+    assert "client_id=client-abc.apps.googleusercontent.com" in sent["body"], sent["body"]
+    assert "client_secret" not in sent["body"], sent["body"]
+    assert "code=code-123" in sent["body"], sent["body"]
+    print("  oauth: không gửi client_secret khi client không cần secret")
+
+
 if __name__ == "__main__":
     for name, fn in [
         ("notion_blocks", test_notion_blocks),
         ("docs_requests", test_docs_requests),
         ("docs_export_survives_drive_failure", test_docs_export_survives_drive_failure),
+        ("oauth_without_client_secret", test_oauth_without_client_secret),
         ("summarize", test_summarize),
         ("summarize_long", test_summarize_long),
     ]:

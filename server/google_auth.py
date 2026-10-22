@@ -89,8 +89,8 @@ def _kr_delete(username: str) -> None:
 def get_client_config() -> tuple[str, str]:
     """Returns (client_id, client_secret). Raises if not configured."""
     stored = _kr_get(_KEYRING_CLIENT_USER)
-    if stored:
-        return stored.get("client_id", ""), stored.get("client_secret", "")
+    if stored and stored.get("client_id"):
+        return stored["client_id"], stored.get("client_secret", "")
     if _BUILTIN_CLIENT_ID:
         return _BUILTIN_CLIENT_ID, _BUILTIN_CLIENT_SECRET
     raise RuntimeError("Google OAuth client chưa được cấu hình. Vào popup → tab Google để thiết lập.")
@@ -152,12 +152,15 @@ def get_valid_access_token() -> str:
 
 
 def _refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> dict:
-    payload = urllib.parse.urlencode({
+    form = {
         "client_id": client_id,
-        "client_secret": client_secret,
         "refresh_token": refresh_token,
         "grant_type": "refresh_token",
-    }).encode()
+    }
+    # Client loại "Desktop app" không dùng client secret — chỉ gửi khi có.
+    if client_secret:
+        form["client_secret"] = client_secret
+    payload = urllib.parse.urlencode(form).encode()
     req = urllib.request.Request(
         "https://oauth2.googleapis.com/token",
         data=payload,
@@ -201,13 +204,16 @@ def exchange_code(code: str, state: str) -> dict:
             raise RuntimeError("OAuth state không khớp (CSRF).")
         _pending_state = ""
     client_id, client_secret = get_client_config()
-    payload = urllib.parse.urlencode({
+    form = {
         "code": code,
         "client_id": client_id,
-        "client_secret": client_secret,
         "redirect_uri": REDIRECT_URI,
         "grant_type": "authorization_code",
-    }).encode()
+    }
+    # Client loại "Desktop app" không dùng client secret — chỉ gửi khi có.
+    if client_secret:
+        form["client_secret"] = client_secret
+    payload = urllib.parse.urlencode(form).encode()
     req = urllib.request.Request(
         "https://oauth2.googleapis.com/token",
         data=payload,
