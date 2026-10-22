@@ -133,6 +133,9 @@ def get_valid_access_token() -> str:
     if not tokens:
         raise RuntimeError("Chưa đăng nhập Google. Vào popup → tab Google để kết nối.")
     access_token = tokens.get("access_token", "")
+    if not access_token:
+        clear_tokens()
+        raise RuntimeError("Chưa đăng nhập Google. Vào popup → tab Google để kết nối.")
     expires_in = tokens.get("expires_in", 3600)
     saved_at = tokens.get("saved_at", 0)
     if time.time() - saved_at < expires_in - 60:
@@ -226,6 +229,10 @@ def exchange_code(code: str, state: str) -> dict:
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"OAuth code exchange thất bại: HTTP {e.code}") from None
 
+    # Chặn token rỗng/rác: nếu không có access token thật thì coi như thất bại.
+    if not token_data.get("access_token"):
+        raise RuntimeError("Google không trả về access token.")
+
     # Fetch user email
     email = ""
     try:
@@ -236,8 +243,9 @@ def exchange_code(code: str, state: str) -> dict:
         with urllib.request.urlopen(info_req, timeout=10) as r:
             info = json.loads(r.read().decode())
             email = info.get("email", "")
-    except Exception:
-        pass
+    except Exception as exc:
+        # Không chặn đăng nhập, nhưng phải thấy được lý do trong log.
+        log.warning("google_userinfo_failed detail=%s", str(exc)[:160])
 
     token_data["email"] = email
     save_tokens(token_data)
@@ -247,7 +255,8 @@ def exchange_code(code: str, state: str) -> dict:
 
 def get_auth_status() -> dict[str, Any]:
     tokens = get_tokens()
-    if not tokens:
+    # Token rỗng/rác không được tính là đã đăng nhập.
+    if not tokens or not tokens.get("access_token"):
         return {"connected": False, "email": ""}
     return {"connected": True, "email": tokens.get("email", "")}
 

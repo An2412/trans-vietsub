@@ -150,14 +150,18 @@ def test_oauth_without_client_secret():
 
     original_client = google_auth.get_client_config
     original_urlopen = google_auth.urllib.request.urlopen
+    original_save = google_auth.save_tokens
     google_auth.get_client_config = lambda: ("client-abc.apps.googleusercontent.com", "")
     google_auth.urllib.request.urlopen = fake_urlopen
+    # TUYỆT ĐỐI không để test ghi token giả vào kho bí mật thật của máy.
+    google_auth.save_tokens = lambda data: None
     google_auth._pending_state = "st"
     try:
         google_auth.exchange_code("code-123", "st")
     finally:
         google_auth.get_client_config = original_client
         google_auth.urllib.request.urlopen = original_urlopen
+        google_auth.save_tokens = original_save
         google_auth._pending_state = ""
 
     assert "client_id=client-abc.apps.googleusercontent.com" in sent["body"], sent["body"]
