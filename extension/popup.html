@@ -93,28 +93,34 @@
 
   <div class="statusBox">
     <h3>Google Docs</h3>
-    <label for="googleClientId">OAuth Client ID</label>
-    <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
-    <label for="googleClientSecret">OAuth Client Secret</label>
-    <input id="googleClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="GICxxxxx" />
+    <div id="googleStatus" class="message" role="status" aria-live="polite"></div>
     <div class="buttons">
-      <button id="saveGoogle" type="button">Lưu client</button>
       <button id="googleLogin" type="button" class="primary">Đăng nhập Google</button>
     </div>
-    <div id="googleStatus" class="message" role="status" aria-live="polite"></div>
     <div class="row" style="justify-content:flex-end; margin-top:4px">
       <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
     </div>
     <details class="guide">
-      <summary>Hướng dẫn tạo OAuth Client (làm 1 lần)</summary>
+      <summary>Cài đặt lần đầu: tạo OAuth Client (chỉ làm 1 lần)</summary>
+      <p>Bấm “Đăng nhập Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
+        và chấp nhận quyền truy cập Google Docs / Drive — đó là bước duy nhất cần thiết
+        để Viet Dub được ghi tóm tắt vào tài liệu của bạn.</p>
+      <p>Nếu báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”,
+        làm theo các bước dưới đây:</p>
       <ol>
         <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
         <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
         <li>Loại ứng dụng: <strong>Desktop app</strong> (bắt buộc, để dùng được redirect <code>127.0.0.1</code>).</li>
         <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>.</li>
-        <li>Dán Client ID + Client Secret vào ô trên, bấm “Lưu client”, rồi “Đăng nhập Google”.</li>
-        <li>Lần đầu bấm “Đăng nhập Google” hãy chọn tài khoản và chấp nhận quyền truy cập Docs/Drive.</li>
+        <li>Dán Client ID + Client Secret vào ô bên dưới, bấm “Lưu client”, rồi bấm lại “Đăng nhập Google”.</li>
       </ol>
+      <label for="googleClientId">OAuth Client ID</label>
+      <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
+      <label for="googleClientSecret">OAuth Client Secret</label>
+      <input id="googleClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="GICxxxxx" />
+      <div class="buttons">
+        <button id="saveGoogle" type="button">Lưu client</button>
+      </div>
     </details>
   </div>
 

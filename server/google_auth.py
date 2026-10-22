@@ -96,6 +96,14 @@ def get_client_config() -> tuple[str, str]:
     raise RuntimeError("Google OAuth client chưa được cấu hình. Vào popup → tab Google để thiết lập.")
 
 
+def is_client_configured() -> bool:
+    """True nếu server đã có OAuth client (trong keyring hoặc client id tích hợp sẵn)."""
+    stored = _kr_get(_KEYRING_CLIENT_USER)
+    if stored and stored.get("client_id"):
+        return True
+    return bool(_BUILTIN_CLIENT_ID)
+
+
 def save_client_config(client_id: str, client_secret: str) -> None:
     _kr_set(_KEYRING_CLIENT_USER, {"client_id": client_id.strip(), "client_secret": client_secret.strip()})
 

@@ -286,7 +286,11 @@ async function loginGoogle() {
       return;
     }
     await chrome.tabs.create({ url: data.url, active: true });
-    setMessage(googleStatus, "warn", "Đăng nhập trong tab vừa mở. Quay lại popup sau khi duyệt quyền.");
+    setMessage(
+      googleStatus,
+      "warn",
+      "Đang chờ bạn duyệt quyền trong tab vừa mở… Popup sẽ tự cập nhật khi đăng nhập xong."
+    );
     pollGoogleStatus();
   } catch (error) {
     setMessage(googleStatus, "err", errorText(error));
@@ -313,8 +317,18 @@ async function refreshGoogleStatus() {
     if (!response.ok) return null;
     if (data.connected) {
       setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
+    } else if (data.client_configured) {
+      setMessage(
+        googleStatus,
+        "warn",
+        "Chưa đăng nhập. Bấm “Đăng nhập Google”, chọn tài khoản và duyệt quyền Docs/Drive."
+      );
     } else {
-      setMessage(googleStatus, "warn", "Chưa đăng nhập Google. Nhập OAuth client rồi bấm “Đăng nhập Google”.");
+      setMessage(
+        googleStatus,
+        "warn",
+        "Chưa có OAuth client. Mở “Cài đặt lần đầu” bên dưới để dán Client ID + Secret."
+      );
     }
     return data;
   } catch (_) {

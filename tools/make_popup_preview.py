@@ -41,7 +41,11 @@ const MOCK = {
     provider: "gemini", model: "gemini-3.8-flash", has_api_key: true,
     secure_store_ready: true, store_message: "",
   },
-  "/google-auth/status": { connected: true, email: "an.207ct68609@gmail.com" },
+  "/google-auth/status": {
+    "connected": true,
+    "email": "an.207ct68609@gmail.com",
+    "client_configured": true,
+  },
   "/notion/status": { configured: true, has_token: true, has_parent_page: true, parent_page_id: "1f2e3d4c5b6a79881f2e3d4c5b6a7988" },
 };
 const _realFetch = window.fetch;

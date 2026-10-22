@@ -402,7 +402,10 @@ def save_google_client_config(req: GoogleClientConfigReq):
 
 @app.get("/google-auth/status")
 def google_auth_status():
-    return gauth.get_auth_status()
+    status = gauth.get_auth_status()
+    # Popup dùng cờ này để biết đã sẵn sàng cho nút "Đăng nhập Google" hay chưa.
+    status["client_configured"] = gauth.is_client_configured()
+    return status
 
 
 @app.get("/google-auth/url")

@@ -44,6 +44,8 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   - `main.py`: endpoints `/google-auth/{client-config,status,url,callback,disconnect}`,
     `/notion/{config,status,test,disconnect}`, `/summarize` (export_to = none|gdocs|notion,
     target_id để append). Cache tóm tắt theo **tiêu đề + hash nội dung**.
+    `/google-auth/status` trả thêm `client_configured` để popup biết đã sẵn sàng
+    cho nút "Đăng nhập Google" hay chưa.
   - `/summarize` trả lỗi rõ ràng: 400 khi chưa có provider AI / export_to sai,
     401 khi chưa đăng nhập Google hoặc chưa cấu hình Notion.
 - **Extension**
@@ -54,8 +56,9 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
     `videoTitle`, nút **📋 Tóm tắt bài học**, khung xem tóm tắt + link tài liệu,
     tự dịch phần phụ đề còn thiếu trước khi tóm tắt, theo dõi SPA navigation.
   - `popup.html` / `popup.js`: mục **Tóm tắt bài học** (chọn đích, ghi tiếp hay tạo mới),
-    khối **Google Docs** (Client ID/Secret, Đăng nhập, Ngắt kết nối, hướng dẫn),
-    khối **Notion** (token, parent page ID, Kiểm tra & lưu, hướng dẫn).
+    khối **Google Docs** (nút **Đăng nhập Google** là thao tác chính; OAuth Client ID/Secret
+    nằm trong `<details>` “Cài đặt lần đầu”), khối **Notion** (token, parent page ID,
+    Kiểm tra & lưu, hướng dẫn).
   - `manifest.json`: 0.6.0, `udemy.com`, host_permissions `*.udemy.com`.
 - **Tests**
   - `server/test_export.py`: markdown → Notion blocks / Docs requests, tóm tắt ngắn & dài.
@@ -78,7 +81,8 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
 1. **Google Cloud Console**: bật `Google Docs API` + `Google Drive API`, và thêm
    Authorized redirect URI `http://127.0.0.1:8765/google-auth/callback` cho OAuth client
    Desktop app. Nếu thiếu bước này sẽ gặp `redirect_uri_mismatch`.
-2. Mở popup → **Đăng nhập Google** để lấy token (hiện chưa đăng nhập).
+2. Mở popup → **Đăng nhập Google** → chọn tài khoản → duyệt quyền Docs/Drive
+   (popup tự cập nhật trạng thái, không cần bấm lại).
 3. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
 4. Reload extension tại `chrome://extensions` để nhận code mới.
 5. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.

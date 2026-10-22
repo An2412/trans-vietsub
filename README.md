@@ -89,18 +89,41 @@ Với website khác không có trong `matches`, hãy thêm domain vào `content_
 
 Bản tóm tắt được cache trong SQLite local theo cặp *tiêu đề + nội dung phụ đề*, nên bấm lại trên cùng video không tốn quota.
 
-### Google Docs — tạo OAuth client (làm một lần)
+### Google Docs — đăng nhập bằng Google
+
+Muốn ghi tóm tắt vào Google Docs, Viet Dub phải được Google cấp quyền cho tài khoản
+của bạn. Việc đó diễn ra bằng chính trang xác thực của Google:
+
+1. Mở popup Viet Dub → mục **Google Docs** → bấm **Đăng nhập Google**.
+2. Trình duyệt mở trang đăng nhập Google. Chọn tài khoản và bấm **Tiếp tục / Cho phép**
+   cho các quyền *xem và tạo tài liệu* và *tạo tệp trong Drive*.
+3. Google chuyển hướng về `http://127.0.0.1:8765/google-auth/callback`; trang báo
+   **“Đã kết nối Google”**. Đóng tab là xong.
+4. Quay lại popup: trạng thái hiện **“Đã đăng nhập: `<email của bạn>`”**. Popup tự cập
+   nhật trong lúc bạn duyệt quyền, không cần bấm lại.
+
+Sau khi kết nối, bản tóm tắt được tạo trong thư mục Drive tên **Viet Dub Notes**
+(mỗi video một tài liệu, hoặc nối tiếp vào cùng một tài liệu nếu bật *Ghi tiếp*).
+
+Token truy cập và refresh token được lưu trong **kho bí mật của hệ điều hành**
+(`viet-dub-google`), không nằm trong Chrome storage, SQLite, mã nguồn hay log.
+Token tự được làm mới khi hết hạn; nút **Ngắt kết nối** xoá token.
+
+#### Nếu báo lỗi khi đăng nhập (xử lý một lần)
+
+Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa là server chưa biết
+ứng dụng nào đang xin quyền. Cần tạo OAuth client một lần:
 
 1. Vào [Google Cloud Console](https://console.cloud.google.com) → tạo project → bật **Google Docs API** và **Google Drive API**.
 2. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
 3. Loại ứng dụng: **Desktop app** (bắt buộc — client ID dạng web không dùng được redirect `127.0.0.1`).
 4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback`.
-5. Trong popup Viet Dub → mục **Google Docs**: dán *Client ID* và *Client Secret* → **Lưu client** → **Đăng nhập Google**.
-6. Tab Google mở ra, chọn tài khoản và chấp nhận quyền. Tab đóng tự động sau khi thành công; quay lại popup sẽ thấy trạng thái “Đã đăng nhập”.
+5. Mở mục **“Cài đặt lần đầu”** trong popup → dán *Client ID* và *Client Secret* → **Lưu client**.
+6. Bấm lại **Đăng nhập Google**.
 
-Token truy cập và refresh token được lưu trong **kho bí mật của hệ điều hành** (`viet-dub-google`), không nằm trong Chrome storage, SQLite, mã nguồn hay log. Nút **Ngắt kết nối** xoá token.
-
-Tài liệu được tạo trong thư mục Drive tên **Viet Dub Notes**.
+> Google có thể hiện cảnh báo *“Google hasn’t verified this app”* vì đây là ứng dụng
+> Desktop tự tạo. Bấm **Advanced → Go to <tên app> (unsafe)** để tiếp tục, hoặc thêm
+> email của bạn vào mục **Test users** trong OAuth consent screen.
 
 ### Notion — tạo integration (làm một lần)
 
