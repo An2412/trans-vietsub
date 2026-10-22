@@ -26,7 +26,17 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   UI khoá ở popup + widget, server trả 403 ở `/summarize`. Phần dịch/lồng tiếng không bị gate.
 - Widget dùng `position:absolute` khi có player container (YouTube, Udemy) và
   `position:fixed` khi không tìm thấy container.
-- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
+- **Google Docs xuất theo mô hình “một sổ tay, mỗi video một thẻ”** (yêu cầu của user):
+  doc chủ “Viet Dub — Tóm tắt bài học” trong folder “Viet Dub Notes”; video đầu chiếm
+  thẻ gốc (đổi tên bằng `updateDocumentTabProperties`), video mới tạo thẻ bằng
+  `addDocumentTab {tabProperties: {title}}`, tóm tắt lại cùng video nối tiếp vào thẻ
+  đó bằng `insertText` + `endOfSegmentLocation {tabId}`; mọi location/range khi ghi
+  thẻ đều mang `tabId` (Range có tabId — đã đối chiếu tài liệu Docs API 10/2026).
+  ID sổ tay nằm ở keyring `viet-dub-google/gdocs_master`; nếu doc bị xoá → tìm lại
+  theo tên qua Drive rồi tự tạo mới. target_id cũ trong chrome.storage bị server
+  bỏ qua cho nhánh gdocs (chỉ còn ý nghĩa với Notion).
+- Popup: dòng trạng thái Google không lặp lại email (email chỉ ở dòng tài khoản kèm
+  nút “Ngắt kết nối”).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
   chặn request có `Origin: https://<site>`; fetch của content script dùng origin của trang.
 - `install.bat` fallback sang `python` nếu không có launcher `py`.
 

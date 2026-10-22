@@ -395,7 +395,8 @@ async function refreshGoogleStatus() {
     applyGoogleSetupHint(Boolean(data.client_configured));
     lastGoogle = data;
     if (data.connected) {
-      setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
+      // Email đã hiển thị ở dòng tài khoản bên dưới — không lặp lại ở dòng trạng thái.
+      setMessage(googleStatus, "ok", "Đã kết nối — phần tóm tắt đã mở khoá.");
     } else {
       if (data.last_error) {
         // Lần đăng nhập trước đã bị Google từ chối — hiện lý do để không phải đoán.

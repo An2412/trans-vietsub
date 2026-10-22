@@ -106,8 +106,18 @@ của bạn. Việc đó diễn ra bằng chính trang xác thực của Google:
 4. Quay lại popup: trạng thái hiện **“Đã đăng nhập: `<email của bạn>`”**. Popup tự cập
    nhật trong lúc bạn duyệt quyền, không cần bấm lại.
 
-Sau khi kết nối, bản tóm tắt được tạo trong thư mục Drive tên **Viet Dub Notes**
-(mỗi video một tài liệu, hoặc nối tiếp vào cùng một tài liệu nếu bật *Ghi tiếp*).
+Sau khi kết nối, mọi bản tóm tắt ghi vào **một sổ tay duy nhất** “Viet Dub — Tóm tắt
+bài học” trong thư mục Drive **Viet Dub Notes**. Sổ tay có thể tạo sẵn của lần đầu.
+Cơ chế thẻ (tabs):
+
+- **Video đầu tiên** → thẻ 1: Viet Dub tự đổi tên thẻ gốc thành tên video và ghi bản tóm tắt vào đó.
+- **Mỗi video sau** → một thẻ mới có tên là tên video (thẻ 2, thẻ 3 …).
+- **Tóm tắt lại cùng video** → ghi tiếp một mục “Cập nhật <ngày giờ>” vào thẻ cũ, không tạo trùng.
+- Token `refresh` tự động; `id bộ nhớ` của sổ tay nằm trong keyring (`gdocs_master`) —
+  nếu tài liệu bị xoá, Viet Dub tìm lại theo tên hoặc tự tạo sổ tay mới.
+
+Giới hạn hiện tại: popup mở link chung của sổ tay (không để sâu vào đúng thẻ);
+thẻ mới được tạo ngay sau thẻ trước nên thứ tự thẻ = thứ tự video bạn tóm tắt.
 
 Token truy cập và refresh token được lưu trong **kho bí mật của hệ điều hành**
 (`viet-dub-google`), không nằm trong Chrome storage, SQLite, mã nguồn hay log.

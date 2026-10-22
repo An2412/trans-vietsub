@@ -37,6 +37,7 @@ log = logging.getLogger("uvicorn.error")
 _KEYRING_SERVICE = "viet-dub-google"
 _KEYRING_TOKEN_USER = "oauth_tokens"
 _KEYRING_CLIENT_USER = "oauth_client"
+_KEYRING_NOTES_USER = "gdocs_master"  # id "sổ tay tóm tắt" (1 doc, mỗi video 1 thẻ)
 
 SCOPES = [
     "openid",
@@ -144,6 +145,23 @@ def save_client_config(client_id: str, client_secret: str) -> None:
 
 def clear_client_config() -> None:
     _kr_delete(_KEYRING_CLIENT_USER)
+
+
+# ─────────── Sổ tay tóm tắt: 1 tài liệu, mỗi video một thẻ (tab) ───────────
+
+MASTER_DOC_TITLE = "Viet Dub — Tóm tắt bài học"
+
+
+def get_master_doc_id() -> str:
+    stored = _kr_get(_KEYRING_NOTES_USER)
+    return (stored or {}).get("document_id", "")
+
+
+def save_master_doc_id(doc_id: str) -> None:
+    try:
+        _kr_set(_KEYRING_NOTES_USER, {"document_id": doc_id, "saved_at": time.time()})
+    except Exception as exc:  # noqa: BLE001 — lỗi kho không được làm hỏng việc xuất Docs
+        log.warning("gdocs_master_id_save_failed detail=%s", str(exc)[:160])
 
 
 # ──────────────────────────── token storage ─────────────────────────────────
@@ -444,6 +462,225 @@ def _find_or_create_folder(name: str, token: str) -> str:
     return meta["id"]
 
 
+# ── Mỗi video một thẻ trong MỘT sổ tay tóm tắt ──
+#
+# Luồng: tìm doc chủ (keyring → tìm theo tên → tạo mới). Với mỗi video, tìm thẻ
+# có tiêu đề trùng tên video: có thì ghi tiếp (mục "cập nhật"), không có thì
+# tạo thẻ mới qua `addDocumentTab` và ghi nội dung vào đúng thẻ đó.
+
+def _get_document(doc_id: str, token: str) -> dict:
+    """GET documents.get với includeTabsContent để thấy mọi thẻ."""
+    return _api_request(
+        "GET",
+        f"https://docs.googleapis.com/v1/documents/{doc_id}?includeTabsContent=true",
+        access_token=token,
+    )
+
+
+def _find_doc_by_name(token: str, name: str) -> str:
+    query = urllib.parse.quote(
+        f"name='{name}' and trashed=false and mimeType='application/vnd.google-apps.document'"
+    )
+    try:
+        result = _api_request(
+            "GET",
+            f"https://www.googleapis.com/drive/v3/files?q={query}&fields=files(id,name)",
+            access_token=token,
+        )
+    except RuntimeError as error:
+        log.warning("gdocs_find_by_name_failed detail=%s", str(error)[:120])
+        return ""
+    files = result.get("files", [])
+    return files[0]["id"] if files else ""
+
+
+def _find_tab_by_title(tabs: list[dict], title: str) -> dict | None:
+    wanted = title.strip()
+    for tab in tabs:
+        props = tab.get("tabProperties", {}) or {}
+        if props.get("title", "").strip() == wanted:
+            return tab
+        hit = _find_tab_by_title(tab.get("childTabs", []) or [], title)
+        if hit:
+            return hit
+    return None
+
+
+def _create_master_doc(token: str, folder_id: str) -> tuple[str, dict]:
+    meta = _api_request(
+        "POST",
+        "https://docs.googleapis.com/v1/documents",
+        {"title": MASTER_DOC_TITLE},
+        token,
+    )
+    doc_id = meta["documentId"]
+    if folder_id:
+        try:
+            _api_request(
+                "PATCH",
+                f"https://www.googleapis.com/drive/v3/files/{doc_id}?addParents={folder_id}&removeParents=root",
+                {},
+                token,
+            )
+        except RuntimeError as error:
+            log.warning("gdocs_move_to_folder_failed detail=%s", str(error)[:160])
+    save_master_doc_id(doc_id)
+    doc = _get_document(doc_id, token)
+    log.info("gdocs_master_created")
+    return doc_id, doc
+
+
+def export_summary_to_lab_doc(title: str, summary_markdown: str) -> dict:
+    """Ghi bản tóm tắt vào sổ tay: một video = một thẻ mang tên video.
+
+    Trả về {"url", "document_id"} của sổ tay.
+    """
+    token = get_valid_access_token()
+    if not (title or "").strip():
+        raise RuntimeError("Thiếu tiêu đề video để đặt tên thẻ.")
+
+    folder_id = ""
+    try:
+        folder_id = _find_or_create_folder("Viet Dub Notes", token)
+    except RuntimeError as error:
+        log.warning("gdocs_folder_skipped detail=%s", str(error)[:160])
+
+    master_id = get_master_doc_id()
+    doc: dict | None = None
+    if master_id:
+        try:
+            doc = _get_document(master_id, token)
+        except RuntimeError as error:
+            # id đã lưu bị xoá/mất quyền — bỏ, tìm lại theo tên.
+            log.warning("gdocs_master_unusable detail=%s", str(error)[:120])
+            master_id = ""
+            doc = None
+    if doc is None:
+        master_id = _find_doc_by_name(token, MASTER_DOC_TITLE)
+        if master_id:
+            try:
+                doc = _get_document(master_id, token)
+                save_master_doc_id(master_id)
+            except RuntimeError:
+                doc = None
+                master_id = ""
+    if doc is None:
+        master_id, doc = _create_master_doc(token, folder_id)
+
+    tabs = doc.get("tabs", []) or []
+    tab = _find_tab_by_title(tabs, title)
+    if tab:
+        _append_update_to_tab(token, master_id, tab, summary_markdown)
+    elif _is_blank_root_only(tabs):
+        # Lần đầu: giữ nguyên thẻ đầu tiên của doc và đổi tên thành tên video
+        # (thẻ 1 của doc trở thành "thẻ của video đầu tiên").
+        _claim_blank_root_tab(token, master_id, tabs, title, summary_markdown)
+    else:
+        _write_summary_to_new_tab(token, master_id, title, summary_markdown)
+
+    return {
+        "url": f"https://docs.google.com/document/d/{master_id}/edit",
+        "document_id": master_id,
+    }
+
+
+def _is_blank_root_only(tabs: list[dict]) -> bool:
+    if len(tabs) != 1 or tabs[0].get("childTabs"):
+        return False
+    body = ((tabs[0].get("documentTab") or {}).get("body") or {}).get("content", []) or []
+    max_end = max((seg.get("endIndex", 0) for seg in body), default=0)
+    # 2 = đúng một đoạn trống (mỗi body luôn kết thúc bằng \n).
+    return max_end <= 2
+
+
+def _claim_blank_root_tab(
+    token: str, doc_id: str, tabs: list[dict], title: str, summary_markdown: str
+) -> None:
+    root_id = ((tabs[0].get("tabProperties") or {}).get("tabId") or "") if tabs else ""
+    try:
+        _api_request(
+            "POST",
+            f"https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate",
+            {"requests": [{
+                "updateDocumentTabProperties": {
+                    "tabProperties": {"title": title.strip(), **({"tabId": root_id} if root_id else {})},
+                    "fields": "title",
+                }
+            }]},
+            token,
+        )
+    except RuntimeError as error:
+        # Đổi tên thẻ thất bại thì vẫn ghi nội dung (nội dung mới tạo ra là thẻ mới).
+        log.warning("gdocs_root_retitle_failed detail=%s", str(error)[:160])
+    _write_tab_content(token, doc_id, summary_markdown, root_id)
+
+
+def _write_summary_to_new_tab(token: str, doc_id: str, title: str, summary_markdown: str) -> None:
+    reply = _api_request(
+        "POST",
+        f"https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate",
+        {"requests": [{"addDocumentTab": {"tabProperties": {"title": title.strip()}}}]},
+        token,
+    )
+    tab_id = ""
+    replies = reply.get("replies", []) or []
+    if replies:
+        props = ((replies[0].get("addDocumentTab") or {}).get("tabProperties")) or {}
+        tab_id = props.get("tabId", "")
+    if not tab_id:
+        # Phản hồi không kèm tab ID thật (tuỳ phiên bản API) — đọc lại doc để tìm.
+        doc = _get_document(doc_id, token)
+        tab = _find_tab_by_title(doc.get("tabs", []) or [], title)
+        if tab:
+            tab_id = (tab.get("tabProperties") or {}).get("tabId", "")
+        log.info("gdocs_new_tab_id_from_get found=%s", bool(tab_id))
+    _write_tab_content(token, doc_id, summary_markdown, tab_id)
+    log.info("gdocs_tab_added")
+
+
+def _write_tab_content(token: str, doc_id: str, markdown: str, tab_id: str) -> None:
+    requests = _markdown_to_docs_requests("", markdown, tab_id)
+    if not requests:
+        return
+    _api_request(
+        "POST",
+        f"https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate",
+        {"requests": requests},
+        token,
+    )
+
+
+def _plain_markdown(markdown: str) -> str:
+    """Markdown → text thẳng (bỏ #, bullet, **, *) để ghi tiếp phần 'cập nhật'."""
+    lines: list[str] = []
+    for raw_line in (markdown or "").split("\n"):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        stripped = re.sub(r"^#{1,3}\s+", "", stripped)
+        stripped = re.sub(r"^[*-•]\s+", "", stripped)
+        plain, _bold, _italic = _inline(stripped)
+        lines.append(plain)
+    return "\n".join(lines)
+
+
+def _append_update_to_tab(token: str, doc_id: str, tab: dict, summary_markdown: str) -> None:
+    tab_id = (tab.get("tabProperties") or {}).get("tabId", "")
+    stamp = time.strftime("%d/%m/%Y %H:%M")
+    text = f"\n\n──── Cập nhật {stamp} ────\n" + _plain_markdown(summary_markdown) + "\n"
+    _api_request(
+        "POST",
+        f"https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate",
+        {"requests": [{
+            "insertText": {
+                "endOfSegmentLocation": {"tabId": tab_id} if tab_id else {},
+                "text": text,
+            }
+        }]},
+        token,
+    )
+
+
 def _inline(text: str) -> tuple[str, list[tuple[int, int]], list[tuple[int, int]]]:
     """Bỏ dấu markdown inline, trả về (text thuần, các đoạn bold, các đoạn italic)."""
     plain: list[str] = []
@@ -472,10 +709,15 @@ def _inline(text: str) -> tuple[str, list[tuple[int, int]], list[tuple[int, int]
     return "".join(plain), bold, italic
 
 
-def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
-    """Chuyển markdown của bản tóm tắt thành các request batchUpdate của Google Docs."""
+def _markdown_to_docs_requests(title: str, markdown: str, tab_id: str = "") -> list[dict]:
+    """Chuyển markdown của bản tóm tắt thành các request batchUpdate của Google Docs.
+
+    - `title` rỗng: bỏ qua dòng tiêu đề (tiêu đề đã nằm trên tên thẻ).
+    - `tab_id` khác rỗng: mọi location/range đều gắn tabId để ghi vào đúng thẻ.
+    """
     paragraphs: list[dict] = []
-    paragraphs.append({"text": title, "kind": "title", "bold": [], "italic": []})
+    if title:
+        paragraphs.append({"text": title, "kind": "title", "bold": [], "italic": []})
 
     for raw_line in (markdown or "").split("\n"):
         stripped = raw_line.strip()
@@ -500,9 +742,10 @@ def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
         paragraphs.append({"text": text, "kind": kind, "bold": bold, "italic": italic})
 
     full_text = "".join(f"{p['text']}\n" for p in paragraphs)
+    location_tab = {"tabId": tab_id} if tab_id else {}
     requests: list[dict] = [{
         "insertText": {
-            "location": {"index": 1},
+            "location": {"index": 1, **location_tab},
             "text": full_text,
         }
     }]
@@ -515,7 +758,7 @@ def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
         if kind == "title":
             requests.append({
                 "updateParagraphStyle": {
-                    "range": {"startIndex": index, "endIndex": end},
+                    "range": {"startIndex": index, "endIndex": end, **location_tab},
                     "paragraphStyle": {"namedStyleType": "HEADING_1"},
                     "fields": "namedStyleType",
                 }
@@ -523,7 +766,7 @@ def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
         elif kind in ("h2", "h3"):
             requests.append({
                 "updateParagraphStyle": {
-                    "range": {"startIndex": index, "endIndex": end},
+                    "range": {"startIndex": index, "endIndex": end, **location_tab},
                     "paragraphStyle": {"namedStyleType": kind.upper()},
                     "fields": "namedStyleType",
                 }
@@ -531,21 +774,21 @@ def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
         elif kind == "bullet":
             requests.append({
                 "createParagraphBullets": {
-                    "range": {"startIndex": index, "endIndex": end},
+                    "range": {"startIndex": index, "endIndex": end, **location_tab},
                     "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE",
                 }
             })
         elif kind == "number":
             requests.append({
                 "createParagraphBullets": {
-                    "range": {"startIndex": index, "endIndex": end},
+                    "range": {"startIndex": index, "endIndex": end, **location_tab},
                     "bulletPreset": "NUMBERED_DECIMAL_ALPHA_ROMAN",
                 }
             })
         for start, stop in paragraph["bold"]:
             requests.append({
                 "updateTextStyle": {
-                    "range": {"startIndex": index + start, "endIndex": index + stop},
+                    "range": {"startIndex": index + start, "endIndex": index + stop, **location_tab},
                     "textStyle": {"bold": True},
                     "fields": "bold",
                 }
@@ -553,7 +796,7 @@ def _markdown_to_docs_requests(title: str, markdown: str) -> list[dict]:
         for start, stop in paragraph["italic"]:
             requests.append({
                 "updateTextStyle": {
-                    "range": {"startIndex": index + start, "endIndex": index + stop},
+                    "range": {"startIndex": index + start, "endIndex": index + stop, **location_tab},
                     "textStyle": {"italic": True},
                     "fields": "italic",
                 }

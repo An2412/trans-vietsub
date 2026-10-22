@@ -662,13 +662,11 @@ async def summarize_endpoint(req: SummarizeReq):
         if not status.get("connected"):
             raise HTTPException(status_code=401, detail="Chưa đăng nhập Google. Vào popup → tab Google để kết nối.")
         try:
-            if req.target_id:
-                target_url = await asyncio.to_thread(gauth.append_to_doc, req.target_id, req.title, summary)
-                target_id = req.target_id
-            else:
-                target_url = await asyncio.to_thread(gauth.create_or_get_lesson_doc, req.title, summary)
-                match = re.search(r"/d/([a-zA-Z0-9_-]+)/", target_url)
-                target_id = match.group(1) if match else ""
+            # Sổ tay duy nhất: một video = một thẻ mang tên video. Bỏ qua
+            # target_id cũ (cơ chế doc riêng từng video đã thay bằng thẻ).
+            result = await asyncio.to_thread(gauth.export_summary_to_lab_doc, req.title, summary)
+            target_url = result["url"]
+            target_id = result["document_id"]
         except Exception as error:
             log.error("gdocs_export_failed title_id=%s error=%s", title_id, safe_error_detail(error))
             raise HTTPException(status_code=502, detail=f"gdocs_export_failed:{str(error)[:200]}") from None
