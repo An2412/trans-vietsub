@@ -846,10 +846,11 @@ async function onLoadButton() {
       ui.start.hidden = false;
       ui.start.disabled = false;
       ui.start.textContent = "▶ Phát & lồng tiếng";
-      // Hiện nút Tóm tắt nếu script đã tải
+      // Hiện nút Tóm tắt nếu script đã tải (nhưng chỉ bấm được khi đã đăng nhập).
       if (ui.summarize) {
         ui.summarize.hidden = false;
         ui.summarize.disabled = false;
+        applySummarizeGate();
       }
     }
   } catch (error) {
@@ -946,9 +947,38 @@ function showSummary(summary, url, target) {
   }
 }
 
+// Tóm tắt chỉ dùng được khi đã đăng nhập Google hoặc đã cấu hình Notion.
+async function summarizeUnlocked() {
+  try {
+    const google = await chrome.runtime.sendMessage({ type: "google_auth_status" });
+    if (google?.ok && google.connected) return true;
+    const notion = await chrome.runtime.sendMessage({ type: "notion_status" });
+    return Boolean(notion?.ok && notion.configured);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Khoá/mở nút Tóm tắt theo trạng thái đăng nhập.
+async function applySummarizeGate() {
+  if (!ui?.summarize) return;
+  const unlocked = await summarizeUnlocked();
+  ui.summarize.hidden = false;
+  ui.summarize.disabled = !unlocked;
+  ui.summarize.textContent = unlocked ? "📋 Tóm tắt bài học" : "🔒 Tóm tắt: đăng nhập Google";
+  ui.summarize.title = unlocked
+    ? ""
+    : "Mở popup Viet Dub và bấm “Tiếp tục với Google” để dùng tóm tắt bài học.";
+}
+
 async function summarizeAndExport() {
   if (!scriptLoaded || !cues.length) {
     setStatus("Tải script phụ đề trước khi tóm tắt.", "error");
+    return;
+  }
+  if (!(await summarizeUnlocked())) {
+    setStatus("Đăng nhập Google trong popup Viet Dub để dùng tóm tắt bài học.", "error");
+    applySummarizeGate();
     return;
   }
   const target = await getExportTarget();

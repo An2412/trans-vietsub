@@ -26,6 +26,11 @@ const saveGoogle = document.getElementById("saveGoogle");
 const googleLogin = document.getElementById("googleLogin");
 const googleLogout = document.getElementById("googleLogout");
 const googleStatus = document.getElementById("googleStatus");
+const googleAccountRow = document.getElementById("googleAccountRow");
+const googleEmail = document.getElementById("googleEmail");
+const summarizeZone = document.getElementById("summarizeZone");
+const summarizeLocked = document.getElementById("summarizeLocked");
+const useNotionInstead = document.getElementById("useNotionInstead");
 const notionToken = document.getElementById("notionToken");
 const notionPageId = document.getElementById("notionPageId");
 const saveNotion = document.getElementById("saveNotion");
@@ -229,7 +234,37 @@ async function init() {
   googleLogout.addEventListener("click", logoutGoogle);
   saveNotion.addEventListener("click", saveNotionConfig);
   notionLogout.addEventListener("click", logoutNotion);
+  useNotionInstead.addEventListener("click", () => {
+    // Lối thoát cho người dùng Notion: không cần Google vẫn mở được cấu hình.
+    notionOverride = true;
+    applyAuthGate();
+    summarizeZone.scrollIntoView({ block: "start" });
+  });
   bootstrapStatuses();
+}
+
+// Trạng thái mới nhất đọc từ server; dùng để quyết định mở khoá phần tóm tắt.
+let lastGoogle = null;
+let lastNotion = null;
+let notionOverride = false;
+
+// Phần "Tóm tắt bài học" chỉ mở khi đã có nơi lưu (Google đã đăng nhập hoặc
+// Notion đã cấu hình). Phần dịch/lồng tiếng không bị ảnh hưởng.
+function applyAuthGate() {
+  const connected = Boolean(lastGoogle && lastGoogle.connected);
+  const notionReady = Boolean(lastNotion && lastNotion.configured);
+  const unlocked = connected || notionReady || notionOverride;
+
+  summarizeZone.hidden = !unlocked;
+  summarizeLocked.hidden = unlocked;
+
+  googleLogin.hidden = connected;
+  googleAccountRow.hidden = !connected;
+  if (connected) {
+    googleEmail.textContent = lastGoogle.email || "Đã đăng nhập Google";
+  } else {
+    googleEmail.textContent = "";
+  }
 }
 
 // Đọc trạng thái Google/Notion một lần khi mở popup, nhưng chỉ khi server đã chạy
@@ -237,12 +272,17 @@ async function init() {
 async function bootstrapStatuses() {
   try {
     const { response } = await requestJson("/health");
-    if (!response.ok) return;
+    if (!response.ok) {
+      applyAuthGate();
+      return;
+    }
   } catch (_) {
+    // Server chưa chạy: vẫn vẽ cổng khoá để người dùng biết cần đăng nhập.
+    applyAuthGate();
     return;
   }
-  refreshGoogleStatus();
-  refreshNotionStatus();
+  await Promise.all([refreshGoogleStatus(), refreshNotionStatus()]);
+  applyAuthGate();
 }
 
 // ─────────────────────────── Google Docs (OAuth2) ───────────────────────────
@@ -314,12 +354,10 @@ async function refreshGoogleStatus() {
     const { response, data } = await requestJson("/google-auth/status", { method: "GET" });
     if (!response.ok) return null;
     applyGoogleSetupHint(Boolean(data.client_configured));
+    lastGoogle = data;
     if (data.connected) {
       setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
-      // Đã có tài khoản rồi thì không cần hiện nút đăng nhập nữa.
-      googleLogin.hidden = true;
     } else {
-      googleLogin.hidden = false;
       if (data.last_error) {
         // Lần đăng nhập trước đã bị Google từ chối — hiện lý do để không phải đoán.
         setMessage(googleStatus, "err", `Lần đăng nhập trước thất bại: ${data.last_error}`);
@@ -333,13 +371,15 @@ async function refreshGoogleStatus() {
         setMessage(
           googleStatus,
           "warn",
-          "Chưa có OAuth client. Mở “Cài đặt lần đầu” bên dưới để dán Client ID + Secret."
+          "Chưa có OAuth client. Mở mục “Dùng OAuth client khác (nâng cao)” bên dưới để thiết lập."
         );
       }
     }
+    applyAuthGate();
     return data;
   } catch (_) {
     setMessage(googleStatus, "err", "Không đọc được trạng thái Google (server chưa chạy?).");
+    applyAuthGate();
     return null;
   }
 }
@@ -368,6 +408,8 @@ async function logoutGoogle() {
       return;
     }
     setMessage(googleStatus, "warn", data.message || "Đã ngắt kết nối Google.");
+    lastGoogle = { ...(lastGoogle || {}), connected: false, email: "" };
+    applyAuthGate();
   } catch (error) {
     setMessage(googleStatus, "err", errorText(error));
   } finally {
@@ -405,6 +447,8 @@ async function saveNotionConfig() {
     }
     notionToken.value = "";
     setMessage(notionStatus, "ok", data.message || "Đã lưu cấu hình Notion.");
+    lastNotion = { configured: true, has_token: true, has_parent_page: true, parent_page_id: parentPageId };
+    applyAuthGate();
   } catch (error) {
     setMessage(notionStatus, "err", errorText(error));
   } finally {
@@ -416,6 +460,7 @@ async function refreshNotionStatus() {
   try {
     const { response, data } = await requestJson("/notion/status", { method: "GET" });
     if (!response.ok) return null;
+    lastNotion = data;
     if (data.configured) {
       setMessage(notionStatus, "ok", `Đã cấu hình Notion (page cha ${data.parent_page_id || ""}).`);
     } else if (data.has_token && !data.has_parent_page) {
@@ -423,9 +468,11 @@ async function refreshNotionStatus() {
     } else {
       setMessage(notionStatus, "warn", "Chưa cấu hình Notion.");
     }
+    applyAuthGate();
     return data;
   } catch (_) {
     setMessage(notionStatus, "err", "Không đọc được trạng thái Notion (server chưa chạy?).");
+    applyAuthGate();
     return null;
   }
 }
@@ -441,6 +488,8 @@ async function logoutNotion() {
     }
     notionPageId.value = "";
     setMessage(notionStatus, "warn", data.message || "Đã xoá cấu hình Notion.");
+    lastNotion = { ...(lastNotion || {}), configured: false, has_token: false, has_parent_page: false, parent_page_id: "" };
+    applyAuthGate();
   } catch (error) {
     setMessage(notionStatus, "err", errorText(error));
   } finally {

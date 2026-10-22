@@ -185,6 +185,12 @@ function testSummarizeFlow() {
   const sent = [];
   window.chrome.runtime.sendMessage = (msg) => {
     sent.push(msg);
+    if (msg.type === "google_auth_status") {
+      return Promise.resolve({ ok: true, connected: true, email: "a@b.c" });
+    }
+    if (msg.type === "notion_status") {
+      return Promise.resolve({ ok: true, configured: false });
+    }
     if (msg.type === "translate_batch") {
       return Promise.resolve({ ok: true, items: msg.texts.map((t) => ({ text: "VI:" + t })) });
     }

@@ -589,6 +589,17 @@ async def summarize_endpoint(req: SummarizeReq):
     if export_to not in {"none", "gdocs", "notion"}:
         raise HTTPException(status_code=400, detail="export_to phải là none, gdocs hoặc notion.")
 
+    # Tóm tắt chỉ dùng sau khi đã có nơi lưu nội dung: đăng nhập Google hoặc
+    # cấu hình Notion. Chặn ở server để không thể gọi vòng qua giao diện.
+    if not (
+        gauth.get_auth_status().get("connected")
+        or notion_export.get_status().get("configured")
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Cần đăng nhập Google (hoặc cấu hình Notion) để dùng tính năng tóm tắt.",
+        )
+
     # 1. Tóm tắt (có cache theo tiêu đề + nội dung)
     cache_key = _summary_cache_key(req.title, req.vi_cues)
     summary = local_cache.get_summary(cache_key) or ""

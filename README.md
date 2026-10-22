@@ -82,6 +82,10 @@ Với website khác không có trong `matches`, hãy thêm domain vào `content_
 
 ### Cách dùng
 
+Tính năng tóm tắt chỉ mở sau khi có **một nơi lưu**: đăng nhập Google hoặc cấu hình
+Notion. Khi chưa có, popup hiện ghi chú 🔒 và nút Tóm tắt trong widget bị khoá; server
+cũng trả `403` nếu gọi `/summarize` trực tiếp, nên không thể dùng vòng qua giao diện.
+
 1. Trong popup chọn **Nơi lưu bản tóm tắt**: `Google Docs`, `Notion (trang con)` hoặc `Chỉ hiện trong widget`.
 2. Bấm **Tải script** rồi **📋 Tóm tắt bài học** trên widget của video. Extension sẽ dịch phần phụ đề chưa có bản Tiếng Việt, nhờ AI rút gọn theo 5 mục (Mục tiêu / Nội dung chính / Khái niệm quan trọng / Kỹ năng–Công cụ / Tóm tắt một câu), rồi lưu ra đích đã chọn.
 3. Bản tóm tắt luôn hiện trong widget (mục *Xem bản tóm tắt*) kèm link mở tài liệu.

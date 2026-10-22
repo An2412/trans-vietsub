@@ -17,8 +17,13 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   `google-auth-oauthlib`, `google-api-python-client` (đã bỏ khỏi `requirements.txt`).
 - Notion dùng **Internal Integration** (token `secret_...`) + parent page ID, mỗi video
   tạo một **trang con** trong trang cha.
-- Google Docs dùng OAuth client loại **Desktop app** với redirect
-  `http://127.0.0.1:8765/google-auth/callback`.
+- Google Docs dùng OAuth client loại **Web application** với redirect
+  `http://127.0.0.1:8765/google-auth/callback`; client secret chỉ nằm phía server
+  (keyring hoặc `server/oauth_client.json` đã gitignore), không bao giờ gửi xuống browser.
+- Client ID nhúng sẵn trong `server/google_auth.py` (`_BUILTIN_CLIENT_ID`) vì đó là
+  định danh công khai; `_BUILTIN_CLIENT_SECRET` **phải để trống** trong repo.
+- Tóm tắt bài học bị **gate**: chỉ mở khi `connected` (Google) hoặc Notion `configured`;
+  UI khoá ở popup + widget, server trả 403 ở `/summarize`. Phần dịch/lồng tiếng không bị gate.
 - Widget dùng `position:absolute` khi có player container (YouTube, Udemy) và
   `position:fixed` khi không tìm thấy container.
 - Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
@@ -46,8 +51,9 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
     target_id để append). Cache tóm tắt theo **tiêu đề + hash nội dung**.
     `/google-auth/status` trả thêm `client_configured` để popup biết đã sẵn sàng
     cho nút "Đăng nhập Google" hay chưa.
-  - `/summarize` trả lỗi rõ ràng: 400 khi chưa có provider AI / export_to sai,
-    401 khi chưa đăng nhập Google hoặc chưa cấu hình Notion.
+  - `/summarize` trả lỗi rõ ràng: 403 khi chưa có nơi lưu (Google chưa đăng nhập **và**
+    Notion chưa cấu hình), 400 khi chưa có provider AI / export_to sai,
+    401 khi đã có nơi lưu nhưng đích cụ thể chưa sẵn sàng.
 - **Extension**
   - `background.js`: thêm `summarize`, `google_auth_url`, `google_auth_status`,
     `notion_status`, `fetch_text` (tải VTT cross-origin cho Udemy).
@@ -55,10 +61,13 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
     loader Udemy (ép `textTracks` mode `hidden`, fallback tải VTT qua background),
     `videoTitle`, nút **📋 Tóm tắt bài học**, khung xem tóm tắt + link tài liệu,
     tự dịch phần phụ đề còn thiếu trước khi tóm tắt, theo dõi SPA navigation.
-  - `popup.html` / `popup.js`: mục **Tóm tắt bài học** (chọn đích, ghi tiếp hay tạo mới),
-    khối **Google Docs** (nút **Đăng nhập Google** là thao tác chính; OAuth Client ID/Secret
-    nằm trong `<details>` “Cài đặt lần đầu”), khối **Notion** (token, parent page ID,
-    Kiểm tra & lưu, hướng dẫn).
+  - `popup.html` / `popup.js`: khối đăng nhập Google đặt **đầu popup** (nút trắng
+    “Tiếp tục với Google” có logo G, ẩn khi đã đăng nhập, thay bằng email + Ngắt kết nối);
+    OAuth Client ID/Secret chỉ còn trong `<details>` “Dùng OAuth client khác (nâng cao)”;
+    phần **Tóm tắt bài học** (đích xuất + Notion) bị gate, hiện ghi chú 🔒 và lối thoát
+    “dùng Notion thay thế”; khối Notion nằm trong vùng được mở khoá.
+  - `content.js`: nút Tóm tắt đổi thành “🔒 Tóm tắt: đăng nhập Google” và bị disable khi
+    chưa có nơi lưu; kiểm tra lại qua `google_auth_status` / `notion_status` mỗi lần tải script.
   - `manifest.json`: 0.6.0, `udemy.com`, host_permissions `*.udemy.com`.
 - **Tests**
   - `server/test_export.py`: markdown → Notion blocks / Docs requests, tóm tắt ngắn & dài.

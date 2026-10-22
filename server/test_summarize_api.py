@@ -31,6 +31,12 @@ class SummarizeEndpointTests(unittest.TestCase):
         self._translator = patch.object(main, "translator", FakeTranslator())
         self._translator.start()
         self.addCleanup(self._translator.stop)
+        # Mặc định coi như đã đăng nhập Google; từng test có thể ghi đè.
+        self._auth = patch.object(
+            gauth, "get_auth_status", return_value={"connected": True, "email": "a@b.c"}
+        )
+        self._auth.start()
+        self.addCleanup(self._auth.stop)
 
     def test_summary_without_export(self):
         response = run(main.summarize_endpoint(main.SummarizeReq(
@@ -118,8 +124,17 @@ class SummarizeEndpointTests(unittest.TestCase):
         self.assertEqual(response.target_id, "doc-1")
         self.assertIn("docs.google.com", response.target_url)
 
-    def test_export_requires_connection(self):
-        with patch.object(gauth, "get_auth_status", return_value={"connected": False, "email": ""}):
+    def test_summarize_blocked_without_destination(self):
+        with patch.object(gauth, "get_auth_status", return_value={"connected": False, "email": ""}), \
+             patch.object(notion_export, "get_status", return_value={"configured": False}):
+            with self.assertRaises(main.HTTPException) as ctx:
+                run(main.summarize_endpoint(main.SummarizeReq(
+                    title="Bài học 1", vi_cues=["a", "b", "c"], export_to="none")))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_gdocs_requires_google_even_with_notion_configured(self):
+        with patch.object(gauth, "get_auth_status", return_value={"connected": False, "email": ""}), \
+             patch.object(notion_export, "get_status", return_value={"configured": True}):
             with self.assertRaises(main.HTTPException) as ctx:
                 run(main.summarize_endpoint(main.SummarizeReq(
                     title="Bài học 1", vi_cues=["a", "b", "c"], export_to="gdocs")))

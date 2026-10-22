@@ -46,6 +46,14 @@
     button.gsign:active { background: #eef0f2; }
     button.gsign[hidden] { display: none; }
     button.gsign svg { width: 18px; height: 18px; flex: none; }
+    button.linklike {
+      background: none; border: 0; padding: 0; margin: 0;
+      color: #1967d2; font: inherit; text-decoration: underline; cursor: pointer;
+    }
+    .lockNote {
+      border: 1px dashed #d5d7da; border-radius: 8px; padding: 9px 10px;
+      margin-top: 10px; font-size: 11px; line-height: 1.5; color: #5f6368;
+    }
   </style>
 </head>
 <body>
@@ -57,6 +65,58 @@
   <div class="row">
     <label for="toggle" style="margin:0">Bật lồng tiếng</label>
     <input id="toggle" type="checkbox" />
+  </div>
+
+  <!-- Đăng nhập đặt ngay đầu popup: đây là "mặt tiền" của Viet Dub. -->
+  <div class="statusBox" id="authBox">
+    <div id="googleStatus" class="message" role="status" aria-live="polite"></div>
+    <div class="buttons">
+      <button id="googleLogin" type="button" class="gsign">
+        <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Tiếp tục với Google
+      </button>
+    </div>
+    <div class="row" id="googleAccountRow" hidden>
+      <span id="googleEmail" class="note" style="margin:0"></span>
+      <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
+    </div>
+    <details class="guide" id="googleSetup">
+      <summary id="googleSetupSummary">OAuth client: đã cấu hình sẵn ✓</summary>
+      <div class="note" id="googleSetupNote">
+        Bạn <strong>không cần điền gì ở đây</strong>. OAuth client đã được nhúng sẵn ở
+        phía server trên máy này, nên chỉ cần bấm “Tiếp tục với Google”.
+      </div>
+      <p>Bấm “Tiếp tục với Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
+        và chấp nhận quyền truy cập Google Docs / Drive — đó là bước duy nhất cần thiết
+        để Viet Dub được ghi tóm tắt vào tài liệu của bạn.</p>
+      <p>Chỉ khi báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”
+        mới cần kiểm tra lại cấu hình trong Google Cloud Console:</p>
+      <ol>
+        <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
+        <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
+        <li>Loại ứng dụng: <strong>Web application</strong> (server local giữ client secret nên đóng vai trò confidential client; <em>Desktop app</em> cũng dùng được).</li>
+        <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>, rồi bấm <strong>Save</strong>.</li>
+      </ol>
+      <p class="note">Client ID và secret không bao giờ được gửi xuống trình duyệt — chúng
+        chỉ tồn tại trong server Python. Vì vậy mở F12 cũng không đọc được secret.</p>
+    </details>
+    <details class="guide" id="googleClientOverride">
+      <summary>Dùng OAuth client khác (nâng cao)</summary>
+      <p>Chỉ dùng khi bạn muốn thay client mặc định bằng client của chính bạn. Giá trị được
+        lưu vào kho bí mật của hệ điều hành trên máy này và không rời khỏi server.</p>
+      <label for="googleClientId">OAuth Client ID</label>
+      <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
+      <label for="googleClientSecret">OAuth Client Secret</label>
+      <input id="googleClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="GICxxxxx" />
+      <div class="buttons">
+        <button id="saveGoogle" type="button">Lưu client</button>
+      </div>
+    </details>
   </div>
 
   <hr class="divider" />
@@ -87,95 +147,51 @@
   <div class="note">Khóa chỉ được gửi tới server cục bộ và lưu trong kho bí mật của hệ điều hành. Không lưu vào Chrome, SQLite, mã nguồn hay log. “Kiểm tra API” gửi một câu mẫu và có thể dùng quota/chi phí API.</div>
   <div class="note">Gemini, OpenAI, Claude và Ollama có giao thức khác nhau; chỉ API key thuộc đúng provider mới dùng được. Nếu chưa cấu hình provider, server dùng dịch vụ miễn phí có thể bị giới hạn.</div>
 
-  <hr class="divider" />
-  <h2>Tóm tắt bài học</h2>
-  <label for="exportTarget">Nơi lưu bản tóm tắt</label>
-  <select id="exportTarget">
-    <option value="gdocs">Google Docs</option>
-    <option value="notion">Notion (trang con)</option>
-    <option value="none">Chỉ hiện trong widget</option>
-  </select>
-  <div class="row" style="margin-top:8px">
-    <label for="appendExisting" style="margin:0;font-weight:400">Ghi tiếp vào tài liệu đã tạo</label>
-    <input id="appendExisting" type="checkbox" checked />
+  <!-- Tóm tắt chỉ mở sau khi có nơi lưu: đăng nhập Google hoặc cấu hình Notion. -->
+  <div id="summarizeLocked" class="lockNote" hidden>
+    🔒 <strong>Tóm tắt bài học</strong> cần một nơi lưu. Đăng nhập Google ở trên,
+    hoặc <button id="useNotionInstead" type="button" class="linklike">dùng Notion thay thế</button>.
   </div>
-  <div class="note">Bấm “📋 Tóm tắt bài học” trong widget trên video để tạo ghi chú. Tắt “Ghi tiếp” nếu muốn mỗi video một tài liệu riêng.</div>
 
-  <div class="statusBox">
-    <h3>Google Docs</h3>
-    <div id="googleStatus" class="message" role="status" aria-live="polite"></div>
-    <div class="buttons">
-      <button id="googleLogin" type="button" class="gsign">
-        <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-        </svg>
-        Tiếp tục với Google
-      </button>
+  <div id="summarizeZone" hidden>
+    <hr class="divider" />
+    <h2>Tóm tắt bài học</h2>
+    <label for="exportTarget">Nơi lưu bản tóm tắt</label>
+    <select id="exportTarget">
+      <option value="gdocs">Google Docs</option>
+      <option value="notion">Notion (trang con)</option>
+      <option value="none">Chỉ hiện trong widget</option>
+    </select>
+    <div class="row" style="margin-top:8px">
+      <label for="appendExisting" style="margin:0;font-weight:400">Ghi tiếp vào tài liệu đã tạo</label>
+      <input id="appendExisting" type="checkbox" checked />
     </div>
-    <div class="row" style="justify-content:flex-end; margin-top:4px">
-      <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
-    </div>
-    <details class="guide" id="googleSetup">
-      <summary id="googleSetupSummary">OAuth client: đã cấu hình sẵn ✓</summary>
-      <div class="note" id="googleSetupNote">
-        Bạn <strong>không cần điền gì ở đây</strong>. OAuth client đã được nhúng sẵn ở
-        phía server trên máy này, nên chỉ cần bấm “Tiếp tục với Google”.
-      </div>
-      <p>Bấm “Tiếp tục với Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
-        và chấp nhận quyền truy cập Google Docs / Drive — đó là bước duy nhất cần thiết
-        để Viet Dub được ghi tóm tắt vào tài liệu của bạn.</p>
-      <p>Chỉ khi báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”
-        mới cần kiểm tra lại cấu hình trong Google Cloud Console:</p>
-      <ol>
-        <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
-        <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
-        <li>Loại ứng dụng: <strong>Web application</strong> (server local giữ client secret nên đóng vai trò confidential client; <em>Desktop app</em> cũng dùng được).</li>
-        <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>, rồi bấm <strong>Save</strong>.</li>
-      </ol>
-      <p class="note">Client ID và secret không bao giờ được gửi xuống trình duyệt — chúng
-        chỉ tồn tại trong server Python. Vì vậy mở F12 cũng không đọc được secret.</p>
-    </details>
+    <div class="note">Bấm “📋 Tóm tắt bài học” trong widget trên video để tạo ghi chú. Tắt “Ghi tiếp” nếu muốn mỗi video một tài liệu riêng.</div>
 
-    <details class="guide" id="googleClientOverride">
-      <summary>Dùng OAuth client khác (nâng cao)</summary>
-      <p>Chỉ dùng khi bạn muốn thay client mặc định bằng client của chính bạn. Giá trị được
-        lưu vào kho bí mật của hệ điều hành trên máy này và không rời khỏi server.</p>
-      <label for="googleClientId">OAuth Client ID</label>
-      <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
-      <label for="googleClientSecret">OAuth Client Secret</label>
-      <input id="googleClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="GICxxxxx" />
+    <div class="statusBox">
+      <h3>Notion</h3>
+      <label for="notionToken">Integration token</label>
+      <input id="notionToken" type="password" autocomplete="new-password" spellcheck="false" placeholder="secret_..." />
+      <label for="notionPageId">Parent page ID</label>
+      <input id="notionPageId" type="text" autocomplete="off" spellcheck="false" placeholder="32 ký tự hex" />
       <div class="buttons">
-        <button id="saveGoogle" type="button">Lưu client</button>
+        <button id="saveNotion" type="button" class="primary">Kiểm tra &amp; lưu</button>
       </div>
-    </details>
-  </div>
-
-  <div class="statusBox">
-    <h3>Notion</h3>
-    <label for="notionToken">Integration token</label>
-    <input id="notionToken" type="password" autocomplete="new-password" spellcheck="false" placeholder="secret_..." />
-    <label for="notionPageId">Parent page ID</label>
-    <input id="notionPageId" type="text" autocomplete="off" spellcheck="false" placeholder="32 ký tự hex" />
-    <div class="buttons">
-      <button id="saveNotion" type="button" class="primary">Kiểm tra &amp; lưu</button>
+      <div id="notionStatus" class="message" role="status" aria-live="polite"></div>
+      <div class="row" style="justify-content:flex-end; margin-top:4px">
+        <button id="notionLogout" type="button" class="danger">Xoá cấu hình</button>
+      </div>
+      <details class="guide">
+        <summary>Hướng dẫn tạo Notion integration (làm 1 lần)</summary>
+        <ol>
+          <li>Vào <code>notion.so/my-integrations</code> → <em>New integration</em> → đặt tên, chọn workspace.</li>
+          <li>Copy <strong>Internal Integration Token</strong> (dạng <code>secret_...</code>) dán vào ô trên.</li>
+          <li>Mở trang Notion muốn làm <em>thư mục cha</em> → <em>… → Connections → Invite</em> → chọn integration vừa tạo.</li>
+          <li>Lấy page ID: mở trang đó bằng Notion API trên web, hoặc dùng <code>notion.so/&lt;page-id&gt;</code> ở cuối URL, rồi bỏ dấu gạch ngang.</li>
+          <li>Bấm “Kiểm tra &amp; lưu”. Mỗi video sẽ tạo một trang con trong trang cha đó.</li>
+        </ol>
+      </details>
     </div>
-    <div id="notionStatus" class="message" role="status" aria-live="polite"></div>
-    <div class="row" style="justify-content:flex-end; margin-top:4px">
-      <button id="notionLogout" type="button" class="danger">Xoá cấu hình</button>
-    </div>
-    <details class="guide">
-      <summary>Hướng dẫn tạo Notion integration (làm 1 lần)</summary>
-      <ol>
-        <li>Vào <code>notion.so/my-integrations</code> → <em>New integration</em> → đặt tên, chọn workspace.</li>
-        <li>Copy <strong>Internal Integration Token</strong> (dạng <code>secret_...</code>) dán vào ô trên.</li>
-        <li>Mở trang Notion muốn làm <em>thư mục cha</em> → <em>… → Connections → Invite</em> → chọn integration vừa tạo.</li>
-        <li>Lấy page ID: mở trang đó bằng Notion API trên web, hoặc dùng <code>notion.so/&lt;page-id&gt;</code> ở cuối URL, rồi bỏ dấu gạch ngang.</li>
-        <li>Bấm “Kiểm tra &amp; lưu”. Mỗi video sẽ tạo một trang con trong trang cha đó.</li>
-      </ol>
-    </details>
   </div>
 
   <script src="popup.js"></script>
