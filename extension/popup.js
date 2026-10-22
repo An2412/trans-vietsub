@@ -281,21 +281,23 @@ function applyAuthGate() {
   }
 }
 
-// Đọc trạng thái Google/Notion một lần khi mở popup, nhưng chỉ khi server đã chạy
-// để không hiện lỗi gây nhầm lẫn (giữ đúng nguyên tắc: mở popup không tự kết nối).
+// Đọc lại toàn bộ trạng thái khi mở popup (server + provider + Google/Notion),
+// không đòi bấm "Kiểm tra" trước — Google/Notion đã tự đọc từ trước, giữ nhất quán.
 async function bootstrapStatuses() {
   try {
     const { response } = await requestJson("/health");
     if (!response.ok) {
+      setServerStatus("err", "Server trả lời bất thường. Bấm “Kiểm tra” để thử lại.");
       applyAuthGate();
       return;
     }
   } catch (_) {
-    // Server chưa chạy: vẫn vẽ cổng khoá để người dùng biết cần đăng nhập.
+    // Server chưa chạy: báo rõ thay vì để chấm xám "Chưa kiểm tra server" gây hiểu nhầm.
+    setServerStatus("err", "Server chưa chạy — khởi động Python server rồi bấm Kiểm tra.");
     applyAuthGate();
     return;
   }
-  await Promise.all([refreshGoogleStatus(), refreshNotionStatus()]);
+  await Promise.all([refreshGoogleStatus(), refreshNotionStatus(), checkServer()]);
   applyAuthGate();
 }
 
