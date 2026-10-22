@@ -317,18 +317,23 @@ async function refreshGoogleStatus() {
     if (!response.ok) return null;
     if (data.connected) {
       setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
-    } else if (data.client_configured) {
-      setMessage(
-        googleStatus,
-        "warn",
-        "Chưa đăng nhập. Bấm “Đăng nhập Google”, chọn tài khoản và duyệt quyền Docs/Drive."
-      );
+      // Đã có tài khoản rồi thì không cần hiện nút đăng nhập nữa.
+      googleLogin.hidden = true;
     } else {
-      setMessage(
-        googleStatus,
-        "warn",
-        "Chưa có OAuth client. Mở “Cài đặt lần đầu” bên dưới để dán Client ID + Secret."
-      );
+      googleLogin.hidden = false;
+      if (data.client_configured) {
+        setMessage(
+          googleStatus,
+          "warn",
+          "Chưa đăng nhập. Bấm “Tiếp tục với Google”, chọn tài khoản và duyệt quyền Docs/Drive."
+        );
+      } else {
+        setMessage(
+          googleStatus,
+          "warn",
+          "Chưa có OAuth client. Mở “Cài đặt lần đầu” bên dưới để dán Client ID + Secret."
+        );
+      }
     }
     return data;
   } catch (_) {

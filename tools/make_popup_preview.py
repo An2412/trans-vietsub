@@ -42,8 +42,9 @@ const MOCK = {
     secure_store_ready: true, store_message: "",
   },
   "/google-auth/status": {
-    "connected": true,
-    "email": "an.207ct68609@gmail.com",
+    // Trạng thái thật của máy user lúc này: đã có OAuth client, chưa đăng nhập.
+    "connected": false,
+    "email": "",
     "client_configured": true,
   },
   "/notion/status": { configured: true, has_token: true, has_parent_page: true, parent_page_id: "1f2e3d4c5b6a79881f2e3d4c5b6a7988" },

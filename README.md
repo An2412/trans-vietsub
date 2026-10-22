@@ -94,7 +94,7 @@ Bản tóm tắt được cache trong SQLite local theo cặp *tiêu đề + n�
 Muốn ghi tóm tắt vào Google Docs, Viet Dub phải được Google cấp quyền cho tài khoản
 của bạn. Việc đó diễn ra bằng chính trang xác thực của Google:
 
-1. Mở popup Viet Dub → mục **Google Docs** → bấm **Đăng nhập Google**.
+1. Mở popup Viet Dub → mục **Google Docs** → bấm **Tiếp tục với Google**.
 2. Trình duyệt mở trang đăng nhập Google. Chọn tài khoản và bấm **Tiếp tục / Cho phép**
    cho các quyền *xem và tạo tài liệu* và *tạo tệp trong Drive*.
 3. Google chuyển hướng về `http://127.0.0.1:8765/google-auth/callback`; trang báo
@@ -119,7 +119,7 @@ Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa
 3. Loại ứng dụng: **Desktop app** (bắt buộc — client ID dạng web không dùng được redirect `127.0.0.1`).
 4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback`.
 5. Mở mục **“Cài đặt lần đầu”** trong popup → dán *Client ID* và *Client Secret* → **Lưu client**.
-6. Bấm lại **Đăng nhập Google**.
+6. Bấm lại **Tiếp tục với Google**.
 
 > Google có thể hiện cảnh báo *“Google hasn’t verified this app”* vì đây là ứng dụng
 > Desktop tự tạo. Bấm **Advanced → Go to <tên app> (unsafe)** để tiếp tục, hoặc thêm
