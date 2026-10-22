@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 try:
@@ -46,10 +47,16 @@ SCOPES = [
 
 REDIRECT_URI = "http://127.0.0.1:8765/google-auth/callback"
 
-# ── Public installed-app client id shipped with extension (no secret needed for installed apps) ──
-# Users can override with their own in /google-auth/client-config
-_BUILTIN_CLIENT_ID = ""   # left empty; user configures from popup
+# ── Client ID nhúng sẵn (Client ID là định danh CÔNG KHAI, luôn hiện trong URL
+#    xin quyền nên không thể và không cần giấu) ──
+# Client secret TUYỆT ĐỐI không đặt ở đây: nó chỉ nằm trong kho bí mật của hệ
+# điều hành hoặc file cấu hình cục bộ đã gitignore (server/oauth_client.json).
+_BUILTIN_CLIENT_ID = "265588708707-4dqldarqfu3tri3o6p8m1dr8k6sf7k4q.apps.googleusercontent.com"
 _BUILTIN_CLIENT_SECRET = ""
+
+# File cấu hình cục bộ (đã gitignore) — dùng để chuyển cấu hình sang máy khác
+# mà không phải nhập lại trong popup.
+_LOCAL_CLIENT_FILE = Path(__file__).resolve().parent / "oauth_client.json"
 
 _lock = threading.Lock()
 _pending_state: str = ""  # CSRF token for pending auth
@@ -86,22 +93,49 @@ def _kr_delete(username: str) -> None:
 
 # ──────────────────────────── client id/secret ──────────────────────────────
 
+def _read_local_client_file() -> tuple[str, str] | None:
+    """Đọc server/oauth_client.json (đã gitignore). Trả None nếu không có."""
+    try:
+        if not _LOCAL_CLIENT_FILE.is_file():
+            return None
+        data = json.loads(_LOCAL_CLIENT_FILE.read_text(encoding="utf-8"))
+        client_id = (data.get("client_id") or "").strip()
+        if not client_id:
+            return None
+        return client_id, (data.get("client_secret") or "").strip()
+    except (OSError, ValueError) as error:
+        log.warning("google_client_file_unreadable detail=%s", str(error)[:160])
+        return None
+
+
 def get_client_config() -> tuple[str, str]:
-    """Returns (client_id, client_secret). Raises if not configured."""
+    """Returns (client_id, client_secret). Raises if not configured.
+
+    Thứ tự ưu tiên: kho bí mật của hệ điều hành → file cục bộ → Client ID nhúng sẵn.
+    """
     stored = _kr_get(_KEYRING_CLIENT_USER)
     if stored and stored.get("client_id"):
         return stored["client_id"], stored.get("client_secret", "")
+    local = _read_local_client_file()
+    if local:
+        return local
     if _BUILTIN_CLIENT_ID:
         return _BUILTIN_CLIENT_ID, _BUILTIN_CLIENT_SECRET
     raise RuntimeError("Google OAuth client chưa được cấu hình. Vào popup → tab Google để thiết lập.")
 
 
 def is_client_configured() -> bool:
-    """True nếu server đã có OAuth client (trong keyring hoặc client id tích hợp sẵn)."""
+    """True nếu đủ thông tin để chạy luồng OAuth.
+
+    Client ID nhúng sẵn chỉ được tính khi có kèm secret, vì client loại
+    "Web application" bắt buộc phải có secret khi đổi token.
+    """
     stored = _kr_get(_KEYRING_CLIENT_USER)
     if stored and stored.get("client_id"):
         return True
-    return bool(_BUILTIN_CLIENT_ID)
+    if _read_local_client_file():
+        return True
+    return bool(_BUILTIN_CLIENT_ID and _BUILTIN_CLIENT_SECRET)
 
 
 def save_client_config(client_id: str, client_secret: str) -> None:

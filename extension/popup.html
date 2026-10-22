@@ -119,24 +119,30 @@
       <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
     </div>
     <details class="guide" id="googleSetup">
-      <summary id="googleSetupSummary">Cài đặt lần đầu: tạo OAuth Client (chỉ làm 1 lần)</summary>
+      <summary id="googleSetupSummary">OAuth client: đã cấu hình sẵn ✓</summary>
       <div class="note" id="googleSetupNote">
-        Bạn <strong>không cần điền gì ở đây</strong>. OAuth client đã được cấu hình sẵn
-        trên máy này — mở phần này chỉ khi bạn chuyển sang máy mới hoặc muốn dùng
-        OAuth client khác của chính bạn.
+        Bạn <strong>không cần điền gì ở đây</strong>. OAuth client đã được nhúng sẵn ở
+        phía server trên máy này, nên chỉ cần bấm “Tiếp tục với Google”.
       </div>
       <p>Bấm “Tiếp tục với Google” sẽ mở trang xác thực chính của Google. Chọn tài khoản
         và chấp nhận quyền truy cập Google Docs / Drive — đó là bước duy nhất cần thiết
         để Viet Dub được ghi tóm tắt vào tài liệu của bạn.</p>
-      <p>Nếu báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”,
-        làm theo các bước dưới đây:</p>
+      <p>Chỉ khi báo lỗi <code>redirect_uri_mismatch</code> hoặc “chưa cấu hình OAuth client”
+        mới cần kiểm tra lại cấu hình trong Google Cloud Console:</p>
       <ol>
         <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
         <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
         <li>Loại ứng dụng: <strong>Web application</strong> (server local giữ client secret nên đóng vai trò confidential client; <em>Desktop app</em> cũng dùng được).</li>
         <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>, rồi bấm <strong>Save</strong>.</li>
-        <li>Dán Client ID + Client Secret vào ô bên dưới, bấm “Lưu client”, rồi bấm lại “Đăng nhập Google”.</li>
       </ol>
+      <p class="note">Client ID và secret không bao giờ được gửi xuống trình duyệt — chúng
+        chỉ tồn tại trong server Python. Vì vậy mở F12 cũng không đọc được secret.</p>
+    </details>
+
+    <details class="guide" id="googleClientOverride">
+      <summary>Dùng OAuth client khác (nâng cao)</summary>
+      <p>Chỉ dùng khi bạn muốn thay client mặc định bằng client của chính bạn. Giá trị được
+        lưu vào kho bí mật của hệ điều hành trên máy này và không rời khỏi server.</p>
       <label for="googleClientId">OAuth Client ID</label>
       <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
       <label for="googleClientSecret">OAuth Client Secret</label>

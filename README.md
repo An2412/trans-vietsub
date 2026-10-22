@@ -116,17 +116,18 @@ của họ: **một** OAuth client do nhà phát triển tạo, nhúng sẵn ở
 chỉ thấy nút “Tiếp tục với Google”.
 
 Viet Dub chạy server trên chính máy bạn, nên chủ dự án Google Cloud cũng chính là bạn.
-Client ID/Secret vì vậy phải nằm trong **kho bí mật của hệ điều hành** trên máy bạn —
-nhập **một lần**, sau đó popup không hỏi lại. Nếu client đã cấu hình, mục cài đặt trong
-popup sẽ hiện “OAuth client: đã cấu hình sẵn ✓” và bạn không cần điền gì.
+Client ID (định danh công khai) đã được **nhúng sẵn trong `server/google_auth.py`**;
+client secret nằm trong `server/oauth_client.json` (đã gitignore) hoặc kho bí mật của
+hệ điều hành. Bạn **không cần nhập gì trong popup** — chỉ bấm “Tiếp tục với Google”.
 
-Muốn người khác cài xong là dùng được ngay (không nhập gì), xem mục *Chia sẻ cho người
-khác dùng* bên dưới: dùng client loại **Desktop app** rồi nhúng Client ID vào extension.
+Client ID/secret **không bao giờ được gửi xuống trình duyệt**: extension chỉ gọi
+`http://127.0.0.1:8765/google-auth/url`, còn server Python mới là bên nói chuyện với
+Google. Vì vậy mở F12 → Network cũng không thấy secret.
 
 #### Nếu báo lỗi khi đăng nhập (xử lý một lần)
 
-Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa là server chưa biết
-ứng dụng nào đang xin quyền. Cần tạo OAuth client một lần:
+Lỗi `redirect_uri_mismatch`, `invalid_client` hoặc “chưa cấu hình OAuth client” nghĩa là
+server chưa có (hoặc sai) OAuth client. Sửa một lần:
 
 1. Vào [Google Cloud Console](https://console.cloud.google.com) → tạo project → bật **Google Docs API** và **Google Drive API**.
 2. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
@@ -134,8 +135,15 @@ Lỗi `redirect_uri_mismatch` hoặc “chưa cấu hình OAuth client” nghĩa
    vai trò *confidential client* — đây là loại client đúng cho kiểu chạy này; loại
    *Desktop app* cũng dùng được nhưng không cần thiết).
 4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback` (bấm **Save**).
-5. Mở mục **“Cài đặt lần đầu”** trong popup → dán *Client ID* và *Client Secret* → **Lưu client**.
-6. Bấm lại **Tiếp tục với Google**.
+5. Đặt Client ID + Secret vào `server/oauth_client.json`:
+
+   ```json
+   { "client_id": "....apps.googleusercontent.com", "client_secret": "GOCSPX-..." }
+   ```
+
+   File này đã nằm trong `.gitignore` — **không commit**. Cách khác: mở mục nâng cao
+   *“Dùng OAuth client khác”* trong popup để lưu vào kho bí mật của hệ điều hành.
+6. Khởi động lại server rồi bấm **Tiếp tục với Google**.
 
 > Google có thể hiện cảnh báo *“Google hasn’t verified this app”* vì đây là ứng dụng
 > Desktop tự tạo. Bấm **Advanced → Go to <tên app> (unsafe)** để tiếp tục, hoặc thêm
@@ -161,12 +169,17 @@ tạo ra nằm trong tài khoản đó). Ngoài ra:
    Platform → Test users). Ở chế độ *Testing*, app chỉ cho tối đa **100 tài khoản**
    đăng nhập và mọi người đều thấy màn hình cảnh báo “app chưa được Google xác minh”.
 3. **Client ID/Secret**: redirect URI là `http://127.0.0.1:8765/...` nên **giống nhau trên
-   mọi máy** — không cần đăng ký lại. Có 2 lựa chọn:
-   - *Web application* (hiện tại): client secret là secret thật → mỗi người dán client
-     riêng của họ vào popup, hoặc bạn chia sẻ secret cho vài người thân.
-   - *Desktop app*: Google coi client secret của client này là **không cần bảo mật**
-     (app cài trên máy không giữ được secret) → ship sẵn Client ID trong extension,
-     không cần secret. Server hiện đã hỗ trợ client không có secret.
+   mọi máy** — không cần đăng ký lại. Client ID đã nhúng sẵn trong `server/google_auth.py`
+   (công khai, luôn hiện trong URL xin quyền nên không giấu được và không cần giấu). Secret:
+   - Gọn nhất: **chép `server/oauth_client.json`** sang máy họ (file đã gitignore). Server
+     đọc ngay, không phải nhập gì trong popup.
+   - Hoặc mỗi người dùng client *Web application* riêng, dán ở mục nâng cao
+     *“Dùng OAuth client khác”* trong popup.
+   - Hoặc dùng client *Desktop app* (Google coi secret loại này là không cần bảo mật) và
+     đặt cả ID lẫn secret trong `server/oauth_client.json` — vẫn không commit.
+
+   > Không đặt secret vào `_BUILTIN_CLIENT_SECRET` trong mã nguồn: hằng số đó nằm trong
+   > file được commit, đẩy lên GitHub là lộ (và GitHub/Google có thể tự thu hồi secret).
 
 Nếu muốn **ai cũng dùng được, không giới hạn 100 người**, phải chuyển Publishing status
 sang *In production* và đi qua xác minh của Google — vì `documents` và `drive.file` là

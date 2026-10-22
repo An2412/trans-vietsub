@@ -278,8 +278,6 @@ async function loginGoogle() {
   googleLogin.disabled = true;
   setMessage(googleStatus, "warn", "Đang mở trang đăng nhập Google...");
   try {
-    // Lưu client trước nếu người dùng vừa dán vào form.
-    if (googleClientId.value.trim()) await saveGoogleClient();
     const { response, data } = await requestJson("/google-auth/url", { method: "GET" });
     if (!response.ok || !data.url) {
       setMessage(googleStatus, "err", data.detail || "Chưa cấu hình OAuth client.");
@@ -346,14 +344,14 @@ async function refreshGoogleStatus() {
   }
 }
 
-// Đổi nhãn mục cài đặt OAuth client để người dùng biết có phải điền hay không.
+// Đổi nhãn mục cấu hình OAuth client để người dùng biết có phải điền hay không.
 function applyGoogleSetupHint(configured) {
   const summary = document.getElementById("googleSetupSummary");
   const note = document.getElementById("googleSetupNote");
   if (summary) {
     summary.textContent = configured
-      ? "OAuth client: đã cấu hình sẵn ✓ (bấm nếu muốn đổi)"
-      : "Cài đặt lần đầu: dán OAuth Client ID + Secret";
+      ? "OAuth client: đã cấu hình sẵn ✓ (không cần điền)"
+      : "Chưa có OAuth client — bấm để xem cách cấu hình";
   }
   if (note) {
     note.hidden = !configured;

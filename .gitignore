@@ -9,5 +9,7 @@ server/data/
 
 .env
 *.env
+# Chứa client secret — không bao giờ commit.
+server/oauth_client.json
 node_modules/
 tools/popup-preview.html
