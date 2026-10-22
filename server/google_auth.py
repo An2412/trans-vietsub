@@ -79,7 +79,7 @@ def _kr_get(username: str) -> dict | None:
 def _kr_set(username: str, data: dict) -> None:
     if keyring is None:
         raise RuntimeError("keyring not available")
-    keyring.set_password(_KEYRING_SERVICE, username, json.dumps(data))
+    keyring.set_password(_KEYRING_SERVICE, username, json.dumps(data, separators=(",", ":")))
 
 
 def _kr_delete(username: str) -> None:
@@ -153,8 +153,32 @@ def get_tokens() -> dict | None:
 
 
 def save_tokens(data: dict) -> None:
-    data["saved_at"] = time.time()
-    _kr_set(_KEYRING_TOKEN_USER, data)
+    """Lưu token vào Windows Credential Manager.
+
+    Windows giới hạn blob của một credential (~512 byte) — vượt quá sẽ bị
+    `CredWrite` từ chối với lỗi 1783 "The stub received bad data". Phản hồi của
+    Google chứa `id_token` (JWT ~1200 ký tự) và `scope`, nhưng cả hai đều không
+    bao giờ được đọc lại trong code → không lưu, chỉ giữ những trường server dùng.
+    """
+    keep = {
+        key: data[key]
+        for key in ("access_token", "refresh_token", "expires_in", "email")
+        if data.get(key)
+    }
+    keep["saved_at"] = time.time()
+    raw = json.dumps(keep, separators=(",", ":"))
+    blob_size = len(raw.encode("utf-8"))
+    log.info("keyring_token_save size=%d bytes", blob_size)
+    try:
+        _kr_set(_KEYRING_TOKEN_USER, keep)
+    except Exception as exc:
+        log.error("keyring_token_save_failed size=%d error=%s", blob_size, str(exc)[:160])
+        raise RuntimeError(
+            f"Windows Credential Manager từ chối ghi token (blob {blob_size} byte): {exc}. "
+            "Đây là lỗi kho hệ thống, không phải lỗi Google. Mở "
+            "'Quản lý thông tin xác thực' → 'Thông tin xác thực người dùng' của Windows, "
+            "xóa mục 'viet-dub-google' rồi bấm đăng nhập lại."
+        ) from exc
 
 
 def clear_tokens() -> None:
@@ -184,6 +208,10 @@ def get_valid_access_token() -> str:
     # Preserve refresh_token if not returned
     if "refresh_token" not in new_tokens:
         new_tokens["refresh_token"] = refresh_token
+    # Google không trả email trong refresh response — giữ lại email đã lưu
+    # (save_tokens không lưu trường trống nên thiếu email sẽ làm popup mất tên TK).
+    if not new_tokens.get("email"):
+        new_tokens["email"] = tokens.get("email", "")
     save_tokens(new_tokens)
     return new_tokens["access_token"]
 

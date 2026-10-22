@@ -491,12 +491,21 @@ qua Google. Đóng tab, mở popup Viet Dub và bấm <strong>Tiếp tục với
     try:
         token_data = await asyncio.to_thread(gauth.exchange_code, code, state)
     except Exception as exc:
-        _last_oauth_error = str(exc)[:300]
-        log.error("google_auth_callback_failed error=%s", str(exc)[:200])
+        message = str(exc) or type(exc).__name__
+        _last_oauth_error = message[:300]
+        log.error("google_auth_callback_failed error=%s", message[:200])
+        escaped = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         html = f"""<!doctype html><html><head><meta charset="utf-8"/>
-<title>Viet Dub – Lỗi</title></head><body>
-<h2>&#10060; Kết nối thất bại</h2><p>{exc}</p>
-<p>Đóng tab này và thử lại.</p></body></html>"""
+<title>Viet Dub – Kết nối thất bại</title>
+<style>body{{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f1f3f4;}}
+.card{{background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.1);max-width:560px;word-break:break-word;}}
+h2{{color:#b3261e;margin:0 0 12px;}} p{{color:#444;line-height:1.5;}} code{{background:#f1f3f4;padding:2px 5px;border-radius:4px;}}</style></head><body>
+<div class="card">
+<h2>&#10060; Kết nối thất bại</h2>
+<p><code>{escaped}</code></p>
+<p>Đóng tab này, mở popup Viet Dub rồi bấm lại <strong>Tiếp tục với Google</strong>.
+Nếu thông báo nói về kho token / Credential Manager thì làm theo hướng dẫn trong đó.</p>
+</div></body></html>"""
         return HTMLResponse(html, status_code=400)
     email = token_data.get("email", "")
     _last_oauth_error = ""
