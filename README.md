@@ -149,9 +149,24 @@ server chưa có (hoặc sai) OAuth client. Sửa một lần:
    *“Dùng OAuth client khác”* trong popup để lưu vào kho bí mật của hệ điều hành.
 6. Khởi động lại server rồi bấm **Tiếp tục với Google**.
 
-> Google có thể hiện cảnh báo *“Google hasn’t verified this app”* vì đây là ứng dụng
+> Google có thể hiện cảnh báo *"Google hasn’t verified this app"* vì đây là ứng dụng
 > Desktop tự tạo. Bấm **Advanced → Go to <tên app> (unsafe)** để tiếp tục, hoặc thêm
 > email của bạn vào mục **Test users** trong OAuth consent screen.
+
+### Sự cố khi đăng nhập Google — tra theo mã lỗi
+
+Lỗi hiện trên trang Google (hoặc trên trang callback của Viet Dub). Tra nhanh:
+
+| Mã lỗi trên trang Google | Nghĩa | Cách xử lý |
+| --- | --- | --- |
+| `403: access_denied` — *“chỉ những người kiểm thử được phê duyệt mới có thể truy cập”* | App đang ở chế độ **Testing** và email đăng nhập chưa có trong **Test users** | Google Auth Platform → **Khách gia (Audience)** → **Người dùng thử** → thêm email tài khoản đăng nhập |
+| `400: redirect_uri_mismatch` | Redirect URI chưa đăng ký | Thêm `http://127.0.0.1:8765/google-auth/callback` vào OAuth client |
+| `400: invalid_scope` | Scope chưa được thêm vào **Truy cập dữ liệu** | Thêm `.../auth/documents` và `.../auth/drive.file` |
+| `401: invalid_client` | Client ID sai/không tồn tại | Tạo lại OAuth client, đặt ID + secret vào `server/oauth_client.json` |
+| `400: state mismatch` (trang callback của Viet Dub) | Bấm vào link callback cũ | Đóng tab, bấm lại **Tiếp tục với Google** |
+
+Sau khi thêm Test user, đợi vài phút rồi thử lại. Ở chế độ Testing tối đa **100
+người dùng thử**; tài liệu vẫn lưu vào Google Drive của từng người đăng nhập.
 
 ### Notion — tạo integration (làm một lần)
 
