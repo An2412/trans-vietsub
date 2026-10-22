@@ -9,3 +9,5 @@ server/data/
 
 .env
 *.env
+node_modules/
+tools/popup-preview.html

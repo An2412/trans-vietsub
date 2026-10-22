@@ -37,6 +37,10 @@ class RateLimitedError(RuntimeError):
         super().__init__(f"rate_limited retry_after={self.retry_after}s")
 
 
+class GenerationNotSupported(RuntimeError):
+    """Provider đang chạy không sinh được văn bản tự do (chưa cấu hình AI có API key)."""
+
+
 class Translator(Protocol):
     def translate(self, text: str, target: str = "vi") -> str: ...
 
@@ -154,6 +158,21 @@ class OllamaCloudTranslator:
     def translate(self, text: str, target: str = "vi") -> str:
         return self.translate_batch([text], target)[0]
 
+    def generate_text(self, prompt: str, system: str = "") -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        res = self._post_chat({
+            "model": self._model,
+            "stream": False,
+            "messages": messages,
+        })
+        msg = res.get("message", {}).get("content", "").strip()
+        if not msg:
+            raise RuntimeError("ollama_empty_output")
+        return msg
+
 
 class FallbackTranslator:
     """Serial provider access, exponential backoff and temporary provider cooldown."""
@@ -235,6 +254,66 @@ class FallbackTranslator:
                 retry_after = max(1, int(max(limited_until.values()) - time.monotonic()))
                 raise RateLimitedError(retry_after, list(limited_until)) from last_err
             raise last_err or RuntimeError("no translation provider")
+
+    def generate_text(self, prompt: str, system: str = "") -> str:
+        """Gọi provider để sinh văn bản tự do (dùng cho tóm tắt bài học)."""
+        key = ("__generate__", prompt, system)
+        with self._lock:
+            if key in self._cache:
+                return self._cache[key]
+
+        last_err: Exception | None = None
+        now = time.monotonic()
+        available = [(name, provider) for name, provider in self._providers
+                     if hasattr(provider, "generate_text") and self._cooldowns.get(name, 0.0) <= now]
+        if not available:
+            raise GenerationNotSupported(
+                "Chưa cấu hình provider AI (Gemini/OpenAI/Claude/Ollama) để tóm tắt. "
+                "Hãy lưu API key trong popup Viet Dub."
+            )
+
+        for name, provider in available:
+            for attempt in range(self.RATE_RETRIES + 1):
+                wait = self.MIN_INTERVAL - (time.monotonic() - self._last)
+                if wait > 0:
+                    time.sleep(wait)
+                try:
+                    out = provider.generate_text(prompt, system)
+                    self._last = time.monotonic()
+                    if out and out.strip():
+                        with self._lock:
+                            self._cache[key] = out
+                            if len(self._cache) > 5000:
+                                self._cache.clear()
+                                self._cache[key] = out
+                        self._cooldowns.pop(name, None)
+                        return out
+                    last_err = RuntimeError("empty generated output")
+                    break
+                except Exception as error:
+                    self._last = time.monotonic()
+                    last_err = error
+                    if is_rate_limited(error):
+                        delay = min(self.RATE_BACKOFF_CAP_S, self.RATE_BACKOFF_BASE_S * (2 ** attempt))
+                        if attempt < self.RATE_RETRIES:
+                            delay += random.uniform(0, 0.25)
+                            log.warning(
+                                "generate_rate_limited retry_in=%.1fs attempt=%d/%d provider=%s error=%s",
+                                delay, attempt + 1, self.RATE_RETRIES, name, _safe_provider_error(error),
+                            )
+                            time.sleep(delay)
+                            continue
+                        until = time.monotonic() + self.RATE_COOLDOWN_S
+                        self._cooldowns[name] = until
+                        log.warning(
+                            "generate_provider_cooldown seconds=%d provider=%s error=%s",
+                            self.RATE_COOLDOWN_S, name, _safe_provider_error(error),
+                        )
+                    else:
+                        log.warning("generate_provider_failed provider=%s error=%s", name, _safe_provider_error(error))
+                    break
+
+        raise last_err or RuntimeError("no generation provider")
 
 
 def _translate_batch_split(provider, texts: list[str], target: str, depth: int = 0) -> list[str]:

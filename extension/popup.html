@@ -29,6 +29,13 @@
     .message.err { color: #b3261e; }
     .message.warn { color: #8a5a00; }
     .divider { border: 0; border-top: 1px solid #e0e0e0; margin: 14px 0; }
+    details.guide { margin-top: 8px; }
+    details.guide summary { cursor: pointer; font-size: 12px; color: #1967d2; }
+    details.guide ol { margin: 8px 0 0; padding-left: 20px; font-size: 11px; line-height: 1.5; color: #5f6368; }
+    details.guide ol li { margin-bottom: 4px; }
+    code { background: #f1f3f4; border-radius: 4px; padding: 1px 4px; font-size: 11px; }
+    .statusBox { border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px; margin-top: 10px; }
+    .statusBox h3 { margin: 0 0 6px; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -69,6 +76,73 @@
   <div id="apiStatus" class="message" role="status" aria-live="polite"></div>
   <div class="note">Khóa chỉ được gửi tới server cục bộ và lưu trong kho bí mật của hệ điều hành. Không lưu vào Chrome, SQLite, mã nguồn hay log. “Kiểm tra API” gửi một câu mẫu và có thể dùng quota/chi phí API.</div>
   <div class="note">Gemini, OpenAI, Claude và Ollama có giao thức khác nhau; chỉ API key thuộc đúng provider mới dùng được. Nếu chưa cấu hình provider, server dùng dịch vụ miễn phí có thể bị giới hạn.</div>
+
+  <hr class="divider" />
+  <h2>Tóm tắt bài học</h2>
+  <label for="exportTarget">Nơi lưu bản tóm tắt</label>
+  <select id="exportTarget">
+    <option value="gdocs">Google Docs</option>
+    <option value="notion">Notion (trang con)</option>
+    <option value="none">Chỉ hiện trong widget</option>
+  </select>
+  <div class="row" style="margin-top:8px">
+    <label for="appendExisting" style="margin:0;font-weight:400">Ghi tiếp vào tài liệu đã tạo</label>
+    <input id="appendExisting" type="checkbox" checked />
+  </div>
+  <div class="note">Bấm “📋 Tóm tắt bài học” trong widget trên video để tạo ghi chú. Tắt “Ghi tiếp” nếu muốn mỗi video một tài liệu riêng.</div>
+
+  <div class="statusBox">
+    <h3>Google Docs</h3>
+    <label for="googleClientId">OAuth Client ID</label>
+    <input id="googleClientId" type="text" autocomplete="off" spellcheck="false" placeholder="xxxxx.apps.googleusercontent.com" />
+    <label for="googleClientSecret">OAuth Client Secret</label>
+    <input id="googleClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="GICxxxxx" />
+    <div class="buttons">
+      <button id="saveGoogle" type="button">Lưu client</button>
+      <button id="googleLogin" type="button" class="primary">Đăng nhập Google</button>
+    </div>
+    <div id="googleStatus" class="message" role="status" aria-live="polite"></div>
+    <div class="row" style="justify-content:flex-end; margin-top:4px">
+      <button id="googleLogout" type="button" class="danger">Ngắt kết nối</button>
+    </div>
+    <details class="guide">
+      <summary>Hướng dẫn tạo OAuth Client (làm 1 lần)</summary>
+      <ol>
+        <li>Vào <code>console.cloud.google.com</code> → tạo project → bật API <code>Google Docs API</code> và <code>Google Drive API</code>.</li>
+        <li>Menu <em>APIs &amp; Services → Credentials</em> → <em>Create credentials → OAuth client ID</em>.</li>
+        <li>Loại ứng dụng: <strong>Desktop app</strong> (bắt buộc, để dùng được redirect <code>127.0.0.1</code>).</li>
+        <li>Thêm Authorized redirect URI: <code>http://127.0.0.1:8765/google-auth/callback</code>.</li>
+        <li>Dán Client ID + Client Secret vào ô trên, bấm “Lưu client”, rồi “Đăng nhập Google”.</li>
+        <li>Lần đầu bấm “Đăng nhập Google” hãy chọn tài khoản và chấp nhận quyền truy cập Docs/Drive.</li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="statusBox">
+    <h3>Notion</h3>
+    <label for="notionToken">Integration token</label>
+    <input id="notionToken" type="password" autocomplete="new-password" spellcheck="false" placeholder="secret_..." />
+    <label for="notionPageId">Parent page ID</label>
+    <input id="notionPageId" type="text" autocomplete="off" spellcheck="false" placeholder="32 ký tự hex" />
+    <div class="buttons">
+      <button id="saveNotion" type="button" class="primary">Kiểm tra &amp; lưu</button>
+    </div>
+    <div id="notionStatus" class="message" role="status" aria-live="polite"></div>
+    <div class="row" style="justify-content:flex-end; margin-top:4px">
+      <button id="notionLogout" type="button" class="danger">Xoá cấu hình</button>
+    </div>
+    <details class="guide">
+      <summary>Hướng dẫn tạo Notion integration (làm 1 lần)</summary>
+      <ol>
+        <li>Vào <code>notion.so/my-integrations</code> → <em>New integration</em> → đặt tên, chọn workspace.</li>
+        <li>Copy <strong>Internal Integration Token</strong> (dạng <code>secret_...</code>) dán vào ô trên.</li>
+        <li>Mở trang Notion muốn làm <em>thư mục cha</em> → <em>… → Connections → Invite</em> → chọn integration vừa tạo.</li>
+        <li>Lấy page ID: mở trang đó bằng Notion API trên web, hoặc dùng <code>notion.so/&lt;page-id&gt;</code> ở cuối URL, rồi bỏ dấu gạch ngang.</li>
+        <li>Bấm “Kiểm tra &amp; lưu”. Mỗi video sẽ tạo một trang con trong trang cha đó.</li>
+      </ol>
+    </details>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

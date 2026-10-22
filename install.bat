@@ -3,17 +3,23 @@ setlocal
 cd /d "%~dp0server"
 where py >nul 2>nul
 if errorlevel 1 (
-  echo Khong thay Python launcher "py". Cai Python 3.11+ tu python.org va tick "Add python.exe to PATH".
-  pause
-  exit /b 1
+  where python >nul 2>nul
+  if errorlevel 1 (
+    echo Khong thay Python launcher "py" hay lenh "python". Cai Python 3.11+ tu python.org va tick "Add python.exe to PATH".
+    pause
+    exit /b 1
+  )
+  set "PYCMD=python"
+) else (
+  set "PYCMD=py -3"
 )
-py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
+%PYCMD% -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
 if errorlevel 1 (
   echo Can Python 3.11 tro len.
   pause
   exit /b 1
 )
-if not exist ".venv\Scripts\python.exe" py -3 -m venv .venv
+if not exist ".venv\Scripts\python.exe" %PYCMD% -m venv .venv
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 (

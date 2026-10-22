@@ -1,6 +1,6 @@
-# Viet Dub — prototype 0.5.5
+# Viet Dub — prototype 0.6.0
 
-Chrome Extension và server Python cục bộ để dịch phụ đề YouTube sang tiếng Việt, sau đó đọc lồng tiếng theo cuốn chiếu. Bản này hỗ trợ chọn provider dịch trong popup: Gemini, OpenAI GPT, Anthropic Claude hoặc Ollama Cloud. TTS vẫn dùng Edge TTS như trước.
+Chrome Extension và server Python cục bộ để dịch phụ đề YouTube / Udemy sang tiếng Việt, sau đó đọc lồng tiếng theo cuốn chiếu. Bản này hỗ trợ chọn provider dịch trong popup: Gemini, OpenAI GPT, Anthropic Claude hoặc Ollama Cloud. TTS vẫn dùng Edge TTS. Ngoài ra có thể **tóm tắt nội dung bài học** và lưu ra **Google Docs** hoặc **Notion**.
 
 ## Chạy server trên Windows 10/11
 
@@ -43,7 +43,7 @@ Server bind vào `127.0.0.1`; không đổi sang `0.0.0.0`. Cache và metadata p
 1. Tại `chrome://extensions`, bật **Developer mode**, bấm **Load unpacked** và chọn thư mục `extension`.
 2. Bấm biểu tượng Viet Dub trên thanh extension. Chọn provider, kiểm tra hoặc sửa `Model ID`, dán API key vào ô mật khẩu.
 3. Bấm **Kiểm tra API** để gửi một câu mẫu và xác nhận provider/model/key hoạt động. Nút này gọi API thật nên có thể dùng quota/chi phí. Kiểm tra thành công rồi bấm **Lưu cấu hình**; key sẽ được xóa khỏi ô nhập sau khi lưu.
-4. Nút **Kiểm tra** ở trên cùng chỉ kiểm tra server và tải metadata cấu hình đã lưu khi bạn chủ động bấm; mở popup không tự kết nối.
+4. Nút **Kiểm tra** ở trên cùng chỉ kiểm tra server và tải metadata cấu hình đã lưu khi bạn chủ động bấm. Riêng trạng thái Google/Notion được đọc lại khi mở popup, nhưng chỉ sau khi server trả lời `/health`.
 5. Mở video YouTube có phụ đề, bật CC, bấm **Tải script**, rồi chọn **Phát & lồng tiếng**. Popup giữ nguyên nút bật/tắt lồng tiếng hiện có.
 
 Tên provider/model lưu trong Chrome để điền lại giao diện; API key không được ghi vào `chrome.storage`, mã nguồn, SQLite hay log. Server lưu khóa trong kho bí mật của hệ điều hành. Extension gửi key tới server cục bộ qua loopback trong thao tác **Kiểm tra API** hoặc **Lưu cấu hình**; server mới gọi dịch vụ AI.
@@ -65,6 +65,53 @@ Tên model là giá trị gợi ý và có thể đổi theo quyền truy cập 
 
 Chỉ provider bạn đã chọn được gọi; Viet Dub không tự rơi về dịch vụ miễn phí khi API trả lỗi. Nếu chưa cấu hình key, server dùng MyMemory/Google miễn phí như trước và có thể gặp 429. Để đổi provider, chọn provider khác, nhập key/model tương ứng rồi lưu; đổi provider mà giữ nguyên key cũ thường dẫn tới lỗi xác thực.
 
+## Dùng trên Udemy (và các web video khác)
+
+Extension đã khai báo sẵn `udemy.com` trong `content_scripts` và `host_permissions`.
+
+1. Mở bài học trên Udemy, bật **CC/Subtitles** trong player và đợi phụ đề tiếng Anh hiện lên.
+2. Bấm **Tải script** trong widget Viet Dub. Extension đọc `textTracks` của thẻ `<video>`; nếu trình duyệt chưa nạp cue thì extension ép track về chế độ `hidden` rồi thử lại, sau đó mới tải file VTT qua service worker.
+3. Bấm **Phát & lồng tiếng** để nghe bản dịch lồng theo video.
+4. Bấm **📋 Tóm tắt bài học** để tạo ghi chú (xem phần kế tiếp).
+
+Khi bạn chuyển sang bài khác trên Udemy (SPA đổi URL), extension tự phát hiện và reset trạng thái để bạn tải script lại.
+
+Với website khác không có trong `matches`, hãy thêm domain vào `content_scripts` và `host_permissions` trong `extension/manifest.json` rồi bấm **Reload** tại `chrome://extensions`.
+
+## Tóm tắt bài học: Google Docs hoặc Notion
+
+### Cách dùng
+
+1. Trong popup chọn **Nơi lưu bản tóm tắt**: `Google Docs`, `Notion (trang con)` hoặc `Chỉ hiện trong widget`.
+2. Bấm **Tải script** rồi **📋 Tóm tắt bài học** trên widget của video. Extension sẽ dịch phần phụ đề chưa có bản Tiếng Việt, nhờ AI rút gọn theo 5 mục (Mục tiêu / Nội dung chính / Khái niệm quan trọng / Kỹ năng–Công cụ / Tóm tắt một câu), rồi lưu ra đích đã chọn.
+3. Bản tóm tắt luôn hiện trong widget (mục *Xem bản tóm tắt*) kèm link mở tài liệu.
+4. Tùy chọn **Ghi tiếp vào tài liệu đã tạo**: bật thì các video sau nối tiếp vào cùng một tài liệu; tắt thì mỗi video tạo một tài liệu riêng.
+
+Bản tóm tắt được cache trong SQLite local theo cặp *tiêu đề + nội dung phụ đề*, nên bấm lại trên cùng video không tốn quota.
+
+### Google Docs — tạo OAuth client (làm một lần)
+
+1. Vào [Google Cloud Console](https://console.cloud.google.com) → tạo project → bật **Google Docs API** và **Google Drive API**.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+3. Loại ứng dụng: **Desktop app** (bắt buộc — client ID dạng web không dùng được redirect `127.0.0.1`).
+4. Thêm **Authorized redirect URI**: `http://127.0.0.1:8765/google-auth/callback`.
+5. Trong popup Viet Dub → mục **Google Docs**: dán *Client ID* và *Client Secret* → **Lưu client** → **Đăng nhập Google**.
+6. Tab Google mở ra, chọn tài khoản và chấp nhận quyền. Tab đóng tự động sau khi thành công; quay lại popup sẽ thấy trạng thái “Đã đăng nhập”.
+
+Token truy cập và refresh token được lưu trong **kho bí mật của hệ điều hành** (`viet-dub-google`), không nằm trong Chrome storage, SQLite, mã nguồn hay log. Nút **Ngắt kết nối** xoá token.
+
+Tài liệu được tạo trong thư mục Drive tên **Viet Dub Notes**.
+
+### Notion — tạo integration (làm một lần)
+
+1. Vào [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New integration** → đặt tên, chọn workspace.
+2. Copy **Internal Integration Token** (dạng `secret_...`).
+3. Mở trang Notion muốn làm **thư mục cha** → **… → Connections → Invite** → chọn integration vừa tạo (bắt buộc, nếu không integration không đọc được trang).
+4. Lấy **Parent page ID**: 32 ký tự hex. Cách nhanh nhất: mở trang đó, copy URL dạng `https://www.notion.so/<workspace>/<page-id>?v=...` rồi bỏ dấu `-` trong `<page-id>`.
+5. Trong popup → mục **Notion**: dán token + page ID → **Kiểm tra & lưu**.
+
+Mỗi video tạo **một trang con** trong thư mục cha, có cùng cấu trúc 5 mục với Google Docs. Token và page ID lưu trong kho bí mật (`viet-dub-notion`).
+
 ## Thông báo lỗi trong popup
 
 - **API key bị từ chối (401):** key sai, bị thu hồi hoặc không thuộc provider đã chọn.
@@ -84,11 +131,13 @@ Bản trước có thể đọc `OLLAMA_API_KEY` từ `server/.env`; bản 0.5.4
 
 Server lưu bản dịch/audio trong SQLite local; cache tiếp tục dùng được qua các lần khởi động. Cache dịch được phân vùng theo provider/model để không lấy nhầm kết quả đã tạo bằng cấu hình khác. Xem thống kê cache tại `http://127.0.0.1:8765/cache/stats`. Extension giữ cache audio ở IndexedDB của trình duyệt. Nếu cần đổi model/provider, nên dừng lồng tiếng trước khi lưu cấu hình mới.
 
-Widget chỉ hiển thị tốc độ YouTube hiện tại; chỉnh tốc độ trực tiếp trong trình phát. Kéo thanh tiêu đề để di chuyển widget, bấm **−** để thu nhỏ thành icon **VD**; kéo icon rồi thả chỉ di chuyển icon. Khi YouTube phát quảng cáo, Viet Dub tạm ngưng tạo/phát giọng và tiếp tục sau quảng cáo.
+Widget chỉ hiển thị tốc độ video hiện tại; chỉnh tốc độ trực tiếp trong trình phát. Kéo thanh tiêu đề để di chuyển widget, bấm **−** để thu nhỏ thành icon **VD**; kéo icon rồi thả chỉ di chuyển icon. Khi YouTube phát quảng cáo, Viet Dub tạm ngưng tạo/phát giọng và tiếp tục sau quảng cáo.
 
 ## Tài liệu API chính thức
 
 - [Gemini API keys và bảo mật](https://ai.google.dev/gemini-api/docs/api-key), [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/interactions)
 - [OpenAI API overview](https://developers.openai.com/api/reference/overview/), [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
 - [Anthropic API overview](https://platform.claude.com/docs/en/api/overview), [Messages API](https://platform.claude.com/docs/en/api/messages/create)
+- [Google OAuth 2.0 cho Desktop app](https://developers.google.com/identity/protocols/oauth2/limited), [Google Docs API](https://developers.google.com/workspace/docs/api/reference/rest), [Google Drive API v3](https://developers.google.com/drive/api/reference/rest/v3)
+- [Notion API — tạo page](https://developers.notion.com/reference/post-page), [Notion API — append block](https://developers.notion.com/reference/patch-block-children), [Notion integrations](https://www.notion.so/my-integrations)
 - [Python keyring](https://keyring.readthedocs.io/en/latest/)

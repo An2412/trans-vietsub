@@ -1,18 +1,26 @@
 {
   "manifest_version": 3,
   "name": "Viet Dub",
-  "version": "0.5.5",
-  "description": "Dịch phụ đề bằng Gemini, OpenAI, Claude hoặc Ollama; cấu hình API key an toàn trong popup.",
+  "version": "0.6.0",
+  "description": "Lồng tiếng Việt cho YouTube, Udemy và video học online; tóm tắt bài học xuất Google Docs.",
   "action": {
     "default_title": "Viet Dub",
     "default_popup": "popup.html"
   },
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "permissions": ["storage", "identity", "tabs"],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "https://www.youtube.com/*",
+    "https://www.udemy.com/*",
+    "https://*.udemy.com/*"
+  ],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.udemy.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

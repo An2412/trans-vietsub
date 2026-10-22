@@ -1,36 +1,85 @@
 # Continuity Ledger
 
 ## Goal
-Push the current project (`youtube-viet-dub`) to GitHub.
+Viet Dub 0.6.0 — extension lồng tiếng Việt cho YouTube **và** Udemy, kèm tóm tắt nội dung
+bài học xuất ra **Google Docs** hoặc **Notion**.
 
 ## Constraints & Assumptions
-- Git is installed. Default branch configured to `main`.
-- User identity: `phamngocan2412` <an.207ct68609@gmail.com>.
-- GitHub Account: `An2412` (SSH authentication confirmed working via `ssh -T git@github.com`).
-- Remote GitHub repository: `trans-vietsub` (`git@github.com:An2412/trans-vietsub.git` / `https://github.com/An2412/trans-vietsub.git`).
+- Git đã cấu hình; branch `main`; remote `git@github.com:An2412/trans-vietsub.git`.
+- User identity: `phamngocan2412` <an.207ct68609@gmail.com> · GitHub `An2412`.
+- Server chỉ bind `127.0.0.1:8765`; API key / OAuth token / Notion token **chỉ** nằm trong
+  kho bí mật hệ điều hành (keyring). Không ghi vào Chrome storage, SQLite, mã nguồn hay log.
+- Provider AI cho phần tóm tắt phải là provider có API key (Gemini / OpenAI / Claude / Ollama).
+  Hai provider miễn phí (MyMemory, Google web) chỉ dịch, không sinh văn bản.
 
 ## Key Decisions
-- Initialize git repository locally with default branch `main`.
-- Stage all project files adhering to `.gitignore`.
-- Create initial commit.
-- Use SSH URL `git@github.com:An2412/trans-vietsub.git` so git push succeeds seamlessly with user's verified SSH key.
+- Viết OAuth2 Google + Notion API bằng `urllib` thuần ⇒ **không** cần `google-auth`,
+  `google-auth-oauthlib`, `google-api-python-client` (đã bỏ khỏi `requirements.txt`).
+- Notion dùng **Internal Integration** (token `secret_...`) + parent page ID, mỗi video
+  tạo một **trang con** trong trang cha.
+- Google Docs dùng OAuth client loại **Desktop app** với redirect
+  `http://127.0.0.1:8765/google-auth/callback`.
+- Widget dùng `position:absolute` khi có player container (YouTube, Udemy) và
+  `position:fixed` khi không tìm thấy container.
+- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
+  chặn request có `Origin: https://<site>`; fetch của content script dùng origin của trang.
+- `install.bat` fallback sang `python` nếu không có launcher `py`.
 
 ## Progress State
-- Done:
-  - Inspected repository structure and `.gitignore`.
-  - Checked git configuration and confirmed SSH key access.
-  - Initialized git repository on branch `main`.
-  - Staged and created initial commit.
-  - Added remote origin (`git@github.com:An2412/trans-vietsub.git`).
-  - Fetched and merged remote `origin/main` (incorporating `LICENSE` cleanly).
-  - Pushed branch `main` to GitHub (`git push -u origin main`) successfully.
-  - Verified Windows compatibility: codebase already includes `install.bat`, `start-server.bat`, Windows Credential Manager support in `provider_settings.py`, and multi-platform `requirements.txt`.
-- Now:
-  - Fixed CC audio pause-and-resume stuttering issue:
-    - Analyzed root causes: hard video pause when nextCue.start <= now + 0.25, single-worker starvation (MAX_PARALLEL = 1), deadlock in resumeIfReady() across sentence gaps (>0.5s), and zero tolerance on cue due timings.
-    - Implemented Adaptive Speech Rate Scaling algorithm (clamped between 0.95x and 1.35x of video rate) to automatically fit spoken Vietnamese audio inside the CC duration window with pitch preservation.
-    - Implemented audio preloading and zero-delay chained playback between cues.
-    - Increased prefetch parallelism to 3 concurrent workers and added a 0.4s grace period before video pause.
-    - Added natural pause segmentation (gap >= 0.65s) in buildCues to avoid overly long run-on captions.
-- Next:
-  - Test playback on YouTube with live extension.
+
+### Done (đã xong, đã test)
+- **Server**
+  - `google_auth.py`: OAuth2 (auth URL, CSRF state, exchange code, refresh token),
+    lưu keyring; Docs helpers: tạo doc, tìm/tạo folder "Viet Dub Notes", append,
+    markdown → `batchUpdate` (heading 1–3, bullet, numbered, bold/italic inline).
+  - `notion_export.py` (mới): token + parent page ID trong keyring, `test_connection`,
+    `create_child_page`, `append_to_page`, markdown → Notion blocks (chia 100 block/request,
+    rich_text chia 1900 ký tự, giữ bold/italic/code, giữ bullet/numbered).
+  - `summarizer.py`: prompt 5 mục; **chia đoạn** transcript dài (6000 ký tự/đoạn,
+    tối đa 12 phần) rồi gộp — không còn cắt cụt ở 8000 ký tự.
+  - `translator.py`: `FallbackTranslator.generate_text()` (retry + cooldown) và
+    `GenerationNotSupported` để trả 400 thay vì 502 khi chưa có provider AI.
+  - `api_providers.py`: `generate_text()` cho Gemini / OpenAI / Anthropic.
+  - `local_cache.py`: bảng `summaries` + `get_summary` / `set_summary`.
+  - `main.py`: endpoints `/google-auth/{client-config,status,url,callback,disconnect}`,
+    `/notion/{config,status,test,disconnect}`, `/summarize` (export_to = none|gdocs|notion,
+    target_id để append). Cache tóm tắt theo **tiêu đề + hash nội dung**.
+  - `/summarize` trả lỗi rõ ràng: 400 khi chưa có provider AI / export_to sai,
+    401 khi chưa đăng nhập Google hoặc chưa cấu hình Notion.
+- **Extension**
+  - `background.js`: thêm `summarize`, `google_auth_url`, `google_auth_status`,
+    `notion_status`, `fetch_text` (tải VTT cross-origin cho Udemy).
+  - `content.js`: `detectPlatform`, `findPlayerContainer`, `getVideo` đa nền tảng,
+    loader Udemy (ép `textTracks` mode `hidden`, fallback tải VTT qua background),
+    `videoTitle`, nút **📋 Tóm tắt bài học**, khung xem tóm tắt + link tài liệu,
+    tự dịch phần phụ đề còn thiếu trước khi tóm tắt, theo dõi SPA navigation.
+  - `popup.html` / `popup.js`: mục **Tóm tắt bài học** (chọn đích, ghi tiếp hay tạo mới),
+    khối **Google Docs** (Client ID/Secret, Đăng nhập, Ngắt kết nối, hướng dẫn),
+    khối **Notion** (token, parent page ID, Kiểm tra & lưu, hướng dẫn).
+  - `manifest.json`: 0.6.0, `udemy.com`, host_permissions `*.udemy.com`.
+- **Tests**
+  - `server/test_export.py`: markdown → Notion blocks / Docs requests, tóm tắt ngắn & dài.
+  - `server/test_summarize_api.py`: 7 test cho `/summarize` (none/gdocs/notion/append/lỗi/cache).
+  - `tests/check-wiring.js`: kiểm tra tĩnh id widget, `ui.*`, message type, manifest, popup id.
+  - `tests/jsdom/smoke.js`: mount widget trên YouTube/Udemy/trang không video + chạy trọn
+    luồng Tóm tắt (tự dịch → gửi message → hiện kết quả + link).
+- **Đã cấu hình sẵn trên máy này**: OAuth Client ID/Secret của user đã lưu vào
+  Windows Credential Manager (`viet-dub-google`). Auth URL sinh đúng.
+
+### Verified
+- `python -m py_compile` toàn bộ server OK.
+- `unittest discover` : 31 test, chỉ 1 lỗi **có sẵn từ trước** ở
+  `test_provider_settings.test_secret_is_not_written_to_sqlite_and_is_not_returned`
+  (Windows khoá file sqlite khi xoá temp dir — không liên quan thay đổi này).
+- Server chạy thật: `/health`, `/google-auth/*`, `/notion/*`, `/summarize` trả đúng mã lỗi.
+- `node --check` cho `content.js`, `background.js`, `popup.js` OK.
+
+### Next (việc user cần tự làm)
+1. **Google Cloud Console**: bật `Google Docs API` + `Google Drive API`, và thêm
+   Authorized redirect URI `http://127.0.0.1:8765/google-auth/callback` cho OAuth client
+   Desktop app. Nếu thiếu bước này sẽ gặp `redirect_uri_mismatch`.
+2. Mở popup → **Đăng nhập Google** để lấy token (hiện chưa đăng nhập).
+3. Tạo Notion integration + invite vào trang cha, dán token + page ID vào popup (nếu dùng Notion).
+4. Reload extension tại `chrome://extensions` để nhận code mới.
+5. Test thật trên một video YouTube và một bài Udemy có phụ đề tiếng Anh.
+6. Commit & push.

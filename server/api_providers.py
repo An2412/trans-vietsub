@@ -157,6 +157,24 @@ class GeminiTranslator(APITranslator):
             raise RuntimeError("gemini_empty_output")
         return output
 
+    def generate_text(self, prompt: str, system: str = "") -> str:
+        combined = f"{system}\n\n{prompt}" if system else prompt
+        data = self._post(
+            {"model": self.model, "input": combined, "store": False},
+            {"x-goog-api-key": self._key},
+        )
+        chunks: list[str] = []
+        for step in data.get("steps", []):
+            if not isinstance(step, dict) or step.get("type") != "model_output":
+                continue
+            for block in step.get("content", []):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    chunks.append(str(block.get("text", "")))
+        output = "\n".join(part for part in chunks if part).strip()
+        if not output:
+            raise RuntimeError("gemini_empty_output")
+        return output
+
 
 class OpenAITranslator(APITranslator):
     provider = "openai"
@@ -184,6 +202,27 @@ class OpenAITranslator(APITranslator):
             raise RuntimeError("openai_empty_output")
         return output
 
+    def generate_text(self, prompt: str, system: str = "") -> str:
+        payload = {
+            "model": self.model,
+            "input": prompt,
+            "store": False,
+        }
+        if system:
+            payload["instructions"] = system
+        data = self._post(payload, {"Authorization": f"Bearer {self._key}"})
+        chunks: list[str] = []
+        for item in data.get("output", []):
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            for block in item.get("content", []):
+                if isinstance(block, dict) and block.get("type") in {"output_text", "text"}:
+                    chunks.append(str(block.get("text", "")))
+        output = "\n".join(part for part in chunks if part).strip()
+        if not output:
+            raise RuntimeError("openai_empty_output")
+        return output
+
 
 class AnthropicTranslator(APITranslator):
     provider = "anthropic"
@@ -199,6 +238,25 @@ class AnthropicTranslator(APITranslator):
             },
             {"x-api-key": self._key, "anthropic-version": "2023-06-01"},
         )
+        chunks = [
+            str(block.get("text", ""))
+            for block in data.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        output = "\n".join(part for part in chunks if part).strip()
+        if not output:
+            raise RuntimeError("anthropic_empty_output")
+        return output
+
+    def generate_text(self, prompt: str, system: str = "") -> str:
+        payload = {
+            "model": self.model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            payload["system"] = system
+        data = self._post(payload, {"x-api-key": self._key, "anthropic-version": "2023-06-01"})
         chunks = [
             str(block.get("text", ""))
             for block in data.get("content", [])

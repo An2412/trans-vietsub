@@ -59,10 +59,18 @@ class LocalCache:
                 setting_key TEXT PRIMARY KEY,
                 setting_value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS summaries (
+                cache_key TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                accessed_at REAL NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_translations_expiry ON translations(expires_at);
             CREATE INDEX IF NOT EXISTS idx_translations_access ON translations(accessed_at);
             CREATE INDEX IF NOT EXISTS idx_audio_expiry ON audio(expires_at);
             CREATE INDEX IF NOT EXISTS idx_audio_access ON audio(accessed_at);
+            CREATE INDEX IF NOT EXISTS idx_summaries_access ON summaries(accessed_at);
             """
         )
         self._conn.commit()
@@ -95,6 +103,37 @@ class LocalCache:
     @staticmethod
     def _audio_key(text: str, voice: str) -> str:
         return _digest(f"audio\0{voice}\0{_normalize(text)}")
+
+    @staticmethod
+    def _summary_key(key_text: str, namespace: str = "default") -> str:
+        return _digest(f"summary\0{namespace}\0{_normalize(key_text)}")
+
+    def get_summary(self, key_text: str, namespace: str = "default") -> str | None:
+        key = self._summary_key(key_text, namespace)
+        now = time.time()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT summary FROM summaries WHERE cache_key=?", (key,)
+            ).fetchone()
+            if not row:
+                return None
+            self._conn.execute("UPDATE summaries SET accessed_at=? WHERE cache_key=?", (now, key))
+            self._conn.commit()
+            return str(row[0])
+
+    def set_summary(self, key_text: str, title: str, summary: str, namespace: str = "default") -> None:
+        if not summary:
+            return
+        key = self._summary_key(key_text, namespace)
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO summaries(cache_key, title, summary, created_at, accessed_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET "
+                "title=excluded.title, summary=excluded.summary, accessed_at=excluded.accessed_at",
+                (key, title, summary, now, now),
+            )
+            self._conn.commit()
 
     def get_translation(self, source: str, target: str, namespace: str = "default") -> str | None:
         key = self._translation_key(source, target, namespace)

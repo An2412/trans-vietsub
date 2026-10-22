@@ -18,6 +18,19 @@ const apiStatus = document.getElementById("apiStatus");
 const testApi = document.getElementById("testApi");
 const saveConfig = document.getElementById("saveConfig");
 const clearConfig = document.getElementById("clearConfig");
+const exportTarget = document.getElementById("exportTarget");
+const appendExisting = document.getElementById("appendExisting");
+const googleClientId = document.getElementById("googleClientId");
+const googleClientSecret = document.getElementById("googleClientSecret");
+const saveGoogle = document.getElementById("saveGoogle");
+const googleLogin = document.getElementById("googleLogin");
+const googleLogout = document.getElementById("googleLogout");
+const googleStatus = document.getElementById("googleStatus");
+const notionToken = document.getElementById("notionToken");
+const notionPageId = document.getElementById("notionPageId");
+const saveNotion = document.getElementById("saveNotion");
+const notionLogout = document.getElementById("notionLogout");
+const notionStatus = document.getElementById("notionStatus");
 
 function setServerStatus(kind, text) {
   dot.className = "dot " + kind;
@@ -178,10 +191,20 @@ async function removeProvider() {
 }
 
 async function init() {
-  const { enabled = false, provider: savedProvider, model: savedModel } = await chrome.storage.local.get(["enabled", "provider", "model"]);
+  const {
+    enabled = false,
+    provider: savedProvider,
+    model: savedModel,
+    exportTarget: savedTarget = "gdocs",
+    appendExisting: savedAppend = true,
+  } = await chrome.storage.local.get([
+    "enabled", "provider", "model", "exportTarget", "appendExisting",
+  ]);
   toggle.checked = enabled;
   provider.value = savedProvider && DEFAULTS[savedProvider] ? savedProvider : "gemini";
   model.value = savedModel || DEFAULTS[provider.value];
+  exportTarget.value = ["gdocs", "notion", "none"].includes(savedTarget) ? savedTarget : "gdocs";
+  appendExisting.checked = savedAppend !== false;
   toggle.addEventListener("change", () => chrome.storage.local.set({ enabled: toggle.checked }));
   recheck.addEventListener("click", checkServer);
   testApi.addEventListener("click", testProvider);
@@ -195,6 +218,199 @@ async function init() {
   model.addEventListener("input", () => {
     setMessage(keyStatus, "warn", "Model đã đổi trong form nhưng server chỉ dùng model mới sau khi bạn bấm Lưu cấu hình.");
   });
+  exportTarget.addEventListener("change", () => {
+    chrome.storage.local.set({ exportTarget: exportTarget.value }).catch(() => {});
+  });
+  appendExisting.addEventListener("change", () => {
+    chrome.storage.local.set({ appendExisting: appendExisting.checked }).catch(() => {});
+  });
+  saveGoogle.addEventListener("click", saveGoogleClient);
+  googleLogin.addEventListener("click", loginGoogle);
+  googleLogout.addEventListener("click", logoutGoogle);
+  saveNotion.addEventListener("click", saveNotionConfig);
+  notionLogout.addEventListener("click", logoutNotion);
+  bootstrapStatuses();
+}
+
+// Đọc trạng thái Google/Notion một lần khi mở popup, nhưng chỉ khi server đã chạy
+// để không hiện lỗi gây nhầm lẫn (giữ đúng nguyên tắc: mở popup không tự kết nối).
+async function bootstrapStatuses() {
+  try {
+    const { response } = await requestJson("/health");
+    if (!response.ok) return;
+  } catch (_) {
+    return;
+  }
+  refreshGoogleStatus();
+  refreshNotionStatus();
+}
+
+// ─────────────────────────── Google Docs (OAuth2) ───────────────────────────
+
+async function saveGoogleClient() {
+  const clientId = googleClientId.value.trim();
+  const clientSecret = googleClientSecret.value.trim();
+  if (!clientId) {
+    setMessage(googleStatus, "err", "Nhập OAuth Client ID trước.");
+    return;
+  }
+  saveGoogle.disabled = true;
+  setMessage(googleStatus, "warn", "Đang lưu client vào kho bí mật...");
+  try {
+    const { response, data } = await requestJson("/google-auth/client-config", {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    });
+    if (!response.ok || !data.ok) {
+      setMessage(googleStatus, "err", data.detail || data.message || "Không lưu được client.");
+      return;
+    }
+    googleClientSecret.value = "";
+    setMessage(googleStatus, "ok", data.message || "Đã lưu OAuth client.");
+  } catch (error) {
+    setMessage(googleStatus, "err", errorText(error));
+  } finally {
+    saveGoogle.disabled = false;
+  }
+}
+
+async function loginGoogle() {
+  googleLogin.disabled = true;
+  setMessage(googleStatus, "warn", "Đang mở trang đăng nhập Google...");
+  try {
+    // Lưu client trước nếu người dùng vừa dán vào form.
+    if (googleClientId.value.trim()) await saveGoogleClient();
+    const { response, data } = await requestJson("/google-auth/url", { method: "GET" });
+    if (!response.ok || !data.url) {
+      setMessage(googleStatus, "err", data.detail || "Chưa cấu hình OAuth client.");
+      return;
+    }
+    await chrome.tabs.create({ url: data.url, active: true });
+    setMessage(googleStatus, "warn", "Đăng nhập trong tab vừa mở. Quay lại popup sau khi duyệt quyền.");
+    pollGoogleStatus();
+  } catch (error) {
+    setMessage(googleStatus, "err", errorText(error));
+  } finally {
+    googleLogin.disabled = false;
+  }
+}
+
+let googlePollTimer = null;
+function pollGoogleStatus() {
+  if (googlePollTimer) clearInterval(googlePollTimer);
+  googlePollTimer = setInterval(async () => {
+    const status = await refreshGoogleStatus();
+    if (status?.connected) {
+      clearInterval(googlePollTimer);
+      googlePollTimer = null;
+    }
+  }, 2000);
+}
+
+async function refreshGoogleStatus() {
+  try {
+    const { response, data } = await requestJson("/google-auth/status", { method: "GET" });
+    if (!response.ok) return null;
+    if (data.connected) {
+      setMessage(googleStatus, "ok", `Đã đăng nhập: ${data.email || "tài khoản Google"}.`);
+    } else {
+      setMessage(googleStatus, "warn", "Chưa đăng nhập Google. Nhập OAuth client rồi bấm “Đăng nhập Google”.");
+    }
+    return data;
+  } catch (_) {
+    setMessage(googleStatus, "err", "Không đọc được trạng thái Google (server chưa chạy?).");
+    return null;
+  }
+}
+
+async function logoutGoogle() {
+  if (!window.confirm("Ngắt kết nối Google? Token sẽ bị xoá khỏi kho bí mật.")) return;
+  googleLogout.disabled = true;
+  try {
+    const { response, data } = await requestJson("/google-auth/disconnect", { method: "POST", body: "{}" });
+    if (!response.ok) {
+      setMessage(googleStatus, "err", data.detail || "Không ngắt được kết nối.");
+      return;
+    }
+    setMessage(googleStatus, "warn", data.message || "Đã ngắt kết nối Google.");
+  } catch (error) {
+    setMessage(googleStatus, "err", errorText(error));
+  } finally {
+    googleLogout.disabled = false;
+  }
+}
+
+// ──────────────────────────────── Notion ──────────────────────────────────
+
+async function saveNotionConfig() {
+  const token = notionToken.value.trim();
+  const parentPageId = notionPageId.value.trim();
+  if (!token || !parentPageId) {
+    setMessage(notionStatus, "err", "Nhập cả integration token và parent page ID.");
+    return;
+  }
+  saveNotion.disabled = true;
+  setMessage(notionStatus, "warn", "Đang kiểm tra kết nối Notion...");
+  try {
+    const { response, data } = await requestJson("/notion/test", {
+      method: "POST",
+      body: JSON.stringify({ token, parent_page_id: parentPageId }),
+    });
+    if (!response.ok || !data.ok) {
+      setMessage(notionStatus, "err", data.detail || data.message || "Không kết nối được Notion.");
+      return;
+    }
+    const save = await requestJson("/notion/config", {
+      method: "POST",
+      body: JSON.stringify({ token, parent_page_id: parentPageId }),
+    });
+    if (!save.response.ok || !save.data.ok) {
+      setMessage(notionStatus, "err", save.data.detail || "Không lưu được cấu hình Notion.");
+      return;
+    }
+    notionToken.value = "";
+    setMessage(notionStatus, "ok", data.message || "Đã lưu cấu hình Notion.");
+  } catch (error) {
+    setMessage(notionStatus, "err", errorText(error));
+  } finally {
+    saveNotion.disabled = false;
+  }
+}
+
+async function refreshNotionStatus() {
+  try {
+    const { response, data } = await requestJson("/notion/status", { method: "GET" });
+    if (!response.ok) return null;
+    if (data.configured) {
+      setMessage(notionStatus, "ok", `Đã cấu hình Notion (page cha ${data.parent_page_id || ""}).`);
+    } else if (data.has_token && !data.has_parent_page) {
+      setMessage(notionStatus, "warn", "Đã có token nhưng thiếu parent page ID.");
+    } else {
+      setMessage(notionStatus, "warn", "Chưa cấu hình Notion.");
+    }
+    return data;
+  } catch (_) {
+    setMessage(notionStatus, "err", "Không đọc được trạng thái Notion (server chưa chạy?).");
+    return null;
+  }
+}
+
+async function logoutNotion() {
+  if (!window.confirm("Xoá Notion token và parent page ID?")) return;
+  notionLogout.disabled = true;
+  try {
+    const { response, data } = await requestJson("/notion/disconnect", { method: "POST", body: "{}" });
+    if (!response.ok) {
+      setMessage(notionStatus, "err", data.detail || "Không xoá được cấu hình.");
+      return;
+    }
+    notionPageId.value = "";
+    setMessage(notionStatus, "warn", data.message || "Đã xoá cấu hình Notion.");
+  } catch (error) {
+    setMessage(notionStatus, "err", errorText(error));
+  } finally {
+    notionLogout.disabled = false;
+  }
 }
 
 init();

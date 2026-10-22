@@ -1,0 +1,13 @@
+{
+  "name": "viet-dub-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Smoke test DOM cho extension Viet Dub (không ảnh hưởng tới thư mục extension).",
+  "scripts": {
+    "test": "node smoke.js",
+    "lint": "node ../extension/check-wiring.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

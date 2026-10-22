@@ -39,12 +39,71 @@ let clientCacheDbPromise = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ─── Platform detection ───────────────────────────────────────────────────
+function detectPlatform() {
+  const h = location.hostname;
+  if (h.includes("youtube.com")) return "youtube";
+  if (h.includes("udemy.com")) return "udemy";
+  return "generic";
+}
+const PLATFORM = detectPlatform();
+
 function getVideo() {
-  return document.querySelector("video.html5-main-video");
+  if (PLATFORM === "youtube") return document.querySelector("video.html5-main-video");
+  // Udemy và các web khác: chọn video đang phát, ưu tiên video to nhất trong player.
+  const videos = Array.from(document.querySelectorAll("video"));
+  if (!videos.length) return null;
+  const visible = videos.filter((v) => v.readyState >= 1 || !v.videoWidth);
+  const playing = visible.find((v) => !v.paused && !v.ended);
+  if (playing) return playing;
+  const sized = visible.filter((v) => v.videoWidth > 0 || v.clientWidth > 120);
+  const pool = sized.length ? sized : visible;
+  const biggest = pool.sort((a, b) => (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight))[0];
+  return biggest || pool[0] || null;
+}
+
+// Container để đặt widget. YouTube có #movie_player; Udemy dùng [data-purpose="player-video"].
+function findPlayerContainer() {
+  if (PLATFORM === "youtube") {
+    const player = document.querySelector("#movie_player");
+    if (player) return player;
+  }
+  if (PLATFORM === "udemy") {
+    const player = document.querySelector(
+      "[data-purpose='player-video'], [data-purpose='player-container'], .ud-player, #course_player, .player-video"
+    );
+    if (player) return player;
+  }
+  const video = getVideo();
+  const generic = video?.closest("[data-purpose], [class*='player'], [class*='Player']") || null;
+  return generic || document.body;
+}
+
+// true nếu container nằm trong <body> (không có khung player riêng) → widget dùng position:fixed.
+function containerIsBody(container) {
+  return !container || container === document.body || container === document.documentElement;
 }
 
 function videoId() {
-  return new URLSearchParams(location.search).get("v") || "";
+  if (PLATFORM === "youtube") return new URLSearchParams(location.search).get("v") || "";
+  if (PLATFORM === "udemy") {
+    // e.g. /course/course-slug/learn/lecture/12345678
+    const m = location.pathname.match(/\/lecture\/(\d+)/);
+    return m ? `udemy-${m[1]}` : `udemy-${location.pathname.replace(/\//g, "_")}`;
+  }
+  return location.pathname;
+}
+
+function videoTitle() {
+  if (PLATFORM === "youtube") {
+    return document.querySelector("h1.ytd-video-primary-info-renderer, h1.style-scope.ytd-watch-metadata")
+      ?.textContent?.trim() || document.title;
+  }
+  if (PLATFORM === "udemy") {
+    return document.querySelector("[data-purpose='curriculum-item-title'], .ud-heading-xl, h1")
+      ?.textContent?.trim() || document.title;
+  }
+  return document.title;
 }
 
 function cueCacheKey(text) {
@@ -188,15 +247,17 @@ function syncAdState() {
 }
 
 function mountWidget() {
-  const player = document.querySelector("#movie_player");
+  const player = findPlayerContainer();
   if (!player) return false;
   if (host && host.parentElement === player) return true;
   if (host) host.remove();
 
   host = document.createElement("div");
   host.id = "vietdub-widget-host";
+  const floating = containerIsBody(player);
   host.style.cssText = [
-    "position:absolute", "top:76px", "right:16px", "z-index:2147483647",
+    floating ? "position:fixed" : "position:absolute",
+    "top:76px", "right:16px", "z-index:2147483647",
     "width:280px", "max-width:calc(100% - 24px)", "pointer-events:auto",
   ].join(";");
 
@@ -228,11 +289,20 @@ function mountWidget() {
       }
       @keyframes vdspin { to { transform:rotate(360deg); } }
       .actions { display:flex; gap:7px; }
+      .actions + .actions { margin-top:7px; }
+      .summaryLink { display:none; margin-top:8px; font-size:11px; }
+      .summaryLink a { color:#8ab4f8; }
+      .summaryBox { margin-top:8px; font-size:11px; color:#d5d9df; }
+      .summaryBox summary { cursor:pointer; color:#8ab4f8; }
+      .summaryBox pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto;
+        background:rgba(255,255,255,.06); border-radius:8px; padding:8px; margin:7px 0 0;
+        font:11px/1.5 ui-monospace,Consolas,monospace; color:#e6e9ef; }
       button {
         appearance:none; border:0; border-radius:8px; padding:8px 9px; background:#2e78e6;
         color:#fff; font:600 12px system-ui,sans-serif; cursor:pointer; flex:1; min-height:34px;
       }
       button.secondary { background:#3b414b; }
+      button.tertiary { background:#1f6f43; }
       button:disabled { opacity:.48; cursor:not-allowed; }
       .progress { height:4px; width:100%; margin:0 0 9px; accent-color:#53bd79; }
       .hint { color:#aeb5bf; font-size:10px; margin-top:7px; }
@@ -251,11 +321,19 @@ function mountWidget() {
         <button id="load" type="button">Tải script</button>
         <button id="start" class="secondary" type="button" disabled hidden>▶ Phát &amp; lồng tiếng</button>
       </div>
+      <div class="actions">
+        <button id="summarize" class="tertiary" type="button" disabled hidden>📋 Tóm tắt bài học</button>
+      </div>
+      <div id="summaryLink" class="summaryLink"><a id="summaryLinkAnchor" href="#" target="_blank" rel="noopener"></a></div>
+      <details id="summaryBox" class="summaryBox" hidden>
+        <summary>Xem bản tóm tắt</summary>
+        <pre id="summaryText"></pre>
+      </details>
       <div class="videoSpeed">
-        <span>Tốc độ đọc YouTube</span>
+        <span>Tốc độ đọc video</span>
         <span id="videoRateValue" class="videoRateValue" aria-live="polite">1.00×</span>
       </div>
-      <div class="hint">Âm thanh tự bám tốc độ phát trên YouTube. Đổi tốc độ trong trình phát.</div>
+      <div class="hint">Âm thanh tự bám tốc độ phát của video. Đổi tốc độ trong trình phát.</div>
     </section>
     <button id="bubble" class="bubble" type="button" title="Mở Viet Dub" aria-label="Mở Viet Dub" hidden>VD</button>`;
 
@@ -269,10 +347,16 @@ function mountWidget() {
     progress: shadow.getElementById("progress"),
     load: shadow.getElementById("load"),
     start: shadow.getElementById("start"),
+    summarize: shadow.getElementById("summarize"),
+    summaryLink: shadow.getElementById("summaryLink"),
+    summaryLinkAnchor: shadow.getElementById("summaryLinkAnchor"),
+    summaryBox: shadow.getElementById("summaryBox"),
+    summaryText: shadow.getElementById("summaryText"),
     videoRateValue: shadow.getElementById("videoRateValue"),
   };
   ui.load.addEventListener("click", onLoadButton);
   ui.start.addEventListener("click", toggleDubbing);
+  ui.summarize.addEventListener("click", summarizeAndExport);
   ui.collapse.addEventListener("click", () => setWidgetCollapsed(true, true));
   ui.bubble.addEventListener("click", (event) => {
     if (ui.bubble.dataset.dragged === "true") {
@@ -304,7 +388,8 @@ function setWidgetCollapsed(value, persist = false) {
   }
   if (!widgetCollapsed && host?.parentElement) {
     const widgetRect = host.getBoundingClientRect();
-    const playerRect = host.parentElement.getBoundingClientRect();
+    const floating = containerIsBody(host.parentElement);
+    const playerRect = floating ? { left: 0, top: 0 } : host.parentElement.getBoundingClientRect();
     applyWidgetPosition({ left: widgetRect.left - playerRect.left, top: widgetRect.top - playerRect.top });
   }
   if (persist) chrome.storage.local.set({ widgetCollapsed }).catch(() => {});
@@ -313,8 +398,9 @@ function setWidgetCollapsed(value, persist = false) {
 function applyWidgetPosition(position) {
   const player = host?.parentElement;
   if (!player || !position || !Number.isFinite(position.left) || !Number.isFinite(position.top)) return;
-  const maxLeft = Math.max(0, player.clientWidth - host.offsetWidth);
-  const maxTop = Math.max(0, player.clientHeight - host.offsetHeight);
+  const floating = containerIsBody(player);
+  const maxLeft = Math.max(0, (floating ? window.innerWidth : player.clientWidth) - host.offsetWidth);
+  const maxTop = Math.max(0, (floating ? window.innerHeight : player.clientHeight) - host.offsetHeight);
   host.style.left = `${Math.max(0, Math.min(maxLeft, position.left))}px`;
   host.style.top = `${Math.max(0, Math.min(maxTop, position.top))}px`;
   host.style.right = "auto";
@@ -324,9 +410,10 @@ function saveWidgetPosition() {
   const player = host?.parentElement;
   if (!player || !host) return;
   const widgetRect = host.getBoundingClientRect();
-  const playerRect = player.getBoundingClientRect();
+  const floating = containerIsBody(player);
+  const baseRect = floating ? { left: 0, top: 0 } : player.getBoundingClientRect();
   chrome.storage.local.set({
-    widgetPosition: { left: widgetRect.left - playerRect.left, top: widgetRect.top - playerRect.top },
+    widgetPosition: { left: widgetRect.left - baseRect.left, top: widgetRect.top - baseRect.top },
   }).catch(() => {});
 }
 
@@ -552,9 +639,130 @@ function buildCues(events) {
 
 async function loadCues() {
   const id = videoId();
-  if (!id) throw new Error("Không xác định được video YouTube hiện tại.");
+  if (!id) throw new Error("Không xác định được video hiện tại.");
   if (loadedFor === id && cues.length) return true;
 
+  if (PLATFORM === "udemy") {
+    return await loadCuesUdemy(id);
+  }
+  return await loadCuesYouTube(id);
+}
+
+// ─── WebVTT parser (Udemy / generic) ─────────────────────────────────────
+function parseVtt(vttText) {
+  const blocks = vttText.split(/\n\n+/);
+  const items = [];
+  for (const block of blocks) {
+    const lines = block.trim().split("\n");
+    const timeLine = lines.find((l) => l.includes("-->"));
+    if (!timeLine) continue;
+    const [startStr, endStr] = timeLine.split("-->").map((s) => s.trim().split(" ")[0]);
+    const parseTime = (t) => {
+      const parts = t.split(":").map(Number);
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      return Number(parts[0]) || 0;
+    };
+    const text = lines.filter((l) => !l.includes("-->") && !/^\d+$/.test(l.trim()))
+      .join(" ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    items.push({ t: parseTime(startStr), d: parseTime(endStr) - parseTime(startStr), text });
+  }
+  return buildCues(items);
+}
+
+// ─── Udemy subtitle loader ────────────────────────────────────────────────
+
+// <track> cues chỉ được nạp khi track.mode khác "disabled" → ép "hidden" để lấy được.
+function forceTrackMode(video) {
+  try {
+    for (const track of Array.from(video.textTracks || [])) {
+      if (track.kind === "metadata" || track.kind === "chapters") continue;
+      if (track.mode === "disabled") {
+        try {
+          track.mode = "hidden";
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+function pickEnglishTrack(video) {
+  const tracks = Array.from(video.textTracks || []);
+  if (!tracks.length) return null;
+  return tracks.find((t) => t.language?.toLowerCase().startsWith("en"))
+    || tracks.find((t) => t.label?.toLowerCase().includes("english"))
+    || tracks.find((t) => t.kind === "subtitles" || t.kind === "captions")
+    || tracks[0];
+}
+
+function findTrackElement(video) {
+  const selector = "track[kind='subtitles'], track[kind='captions'], track[srclang]";
+  return video.querySelector?.(selector) || document.querySelector(selector) || null;
+}
+
+// Content script không fetch cross-origin được → nhờ service worker tải giúp.
+async function fetchTextViaBackground(url) {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "fetch_text", url });
+    if (result?.ok && typeof result.text === "string") return result.text;
+    console.warn(TAG, "Tải phụ đề thất bại:", result?.error);
+  } catch (error) {
+    console.warn(TAG, "Không gọi được service worker:", error?.message || error);
+  }
+  return "";
+}
+
+async function loadCuesUdemy(id) {
+  setStatus("Đang tìm phụ đề Udemy…", "working");
+  const deadline = Date.now() + CAPTION_WAIT_MS;
+  let triedSrc = "";
+  while (Date.now() < deadline) {
+    const video = getVideo();
+    if (video) {
+      forceTrackMode(video);
+      const track = pickEnglishTrack(video);
+      if (track?.cues && track.cues.length) {
+        const items = Array.from(track.cues).map((c) => ({
+          t: c.startTime,
+          d: c.endTime - c.startTime,
+          text: String(c.text || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+        })).filter((i) => i.text);
+        const next = buildCues(items);
+        if (next.length) {
+          cues = next;
+          loadedFor = id;
+          return true;
+        }
+      }
+      // Đường dự phòng: tải file VTT của <track> (có thể là blob: hoặc URL khác host).
+      const trackEl = findTrackElement(video);
+      const src = trackEl?.src || trackEl?.getAttribute?.("src") || "";
+      if (src && src !== triedSrc && !src.startsWith("blob:")) {
+        triedSrc = src;
+        const text = await fetchTextViaBackground(src);
+        if (text) {
+          const next = parseVtt(text);
+          if (next.length) {
+            cues = next;
+            loadedFor = id;
+            return true;
+          }
+        }
+      }
+    }
+    await sleep(500);
+  }
+  throw new Error(
+    "Không tìm thấy phụ đề trên Udemy. Bật CC/Subtitles trong player, đợi phụ đề hiện lên rồi bấm Tải script lại."
+  );
+}
+
+// ─── YouTube subtitle loader (original logic) ─────────────────────────────
+async function loadCuesYouTube(id) {
   const deadline = Date.now() + CAPTION_WAIT_MS;
   const nudgeAt = Date.now() + 2500;
   let nudged = false;
@@ -638,6 +846,11 @@ async function onLoadButton() {
       ui.start.hidden = false;
       ui.start.disabled = false;
       ui.start.textContent = "▶ Phát & lồng tiếng";
+      // Hiện nút Tóm tắt nếu script đã tải
+      if (ui.summarize) {
+        ui.summarize.hidden = false;
+        ui.summarize.disabled = false;
+      }
     }
   } catch (error) {
     if (myGeneration === generation) {
@@ -685,6 +898,110 @@ function startBatchTranslate(now, ahead) {
 
 function requestSpeak(text) {
   return chrome.runtime.sendMessage({ type: "speak", text });
+}
+
+// Đích xuất tóm tắt: "gdocs" | "notion" | "none" (đặt trong popup).
+async function getExportTarget() {
+  try {
+    const { exportTarget } = await chrome.storage.local.get(["exportTarget"]);
+    return ["gdocs", "notion", "none"].includes(exportTarget) ? exportTarget : "gdocs";
+  } catch (_) {
+    return "gdocs";
+  }
+}
+
+// Dịch phần phụ đề chưa có bản Tiếng Việt để tóm tắt được toàn bộ bài.
+async function ensureVietnameseCues() {
+  const pending = cues.filter((cue) => cue.en && !cue.vi);
+  if (!pending.length) return true;
+  const size = Math.max(1, Math.min(BATCH_SIZE || 16, 16));
+  for (let index = 0; index < pending.length; index += size) {
+    const group = pending.slice(index, index + size);
+    const result = await chrome.runtime.sendMessage({
+      type: "translate_batch",
+      texts: group.map((cue) => cue.en),
+    });
+    if (!result?.ok) return false;
+    const items = result.items || [];
+    items.forEach((item, offset) => {
+      const cue = group[offset];
+      if (cue && typeof item?.text === "string" && item.text.trim()) cue.vi = item.text.trim();
+    });
+  }
+  return cues.some((cue) => cue.vi);
+}
+
+function showSummary(summary, url, target) {
+  if (!ui) return;
+  if (summary) {
+    ui.summaryText.textContent = summary;
+    ui.summaryBox.hidden = false;
+  }
+  if (url) {
+    ui.summaryLinkAnchor.href = url;
+    ui.summaryLinkAnchor.textContent = target === "notion" ? "Mở trang Notion ↗" : "Mở Google Docs ↗";
+    ui.summaryLink.style.display = "block";
+  } else {
+    ui.summaryLink.style.display = "none";
+  }
+}
+
+async function summarizeAndExport() {
+  if (!scriptLoaded || !cues.length) {
+    setStatus("Tải script phụ đề trước khi tóm tắt.", "error");
+    return;
+  }
+  const target = await getExportTarget();
+  if (ui?.summarize) {
+    ui.summarize.disabled = true;
+    ui.summarize.textContent = "Đang xử lý…";
+  }
+  try {
+    if (!cues.some((cue) => cue.vi)) {
+      setStatus("Đang dịch toàn bộ phụ đề sang Tiếng Việt…", "working");
+      const translated = await ensureVietnameseCues();
+      if (!translated) {
+        setStatus("Không dịch được phụ đề. Kiểm tra API key và thử lại.", "error");
+        return;
+      }
+    }
+    const viCues = cues.map((cue) => cue.vi).filter(Boolean);
+    if (viCues.length < 3) {
+      setStatus("Phụ đề quá ngắn để tóm tắt (cần ít nhất 3 câu).", "error");
+      return;
+    }
+    setStatus("Đang tóm tắt bài học bằng AI…", "working");
+    const { exportTargets = {}, appendExisting = true } = await chrome.storage.local.get([
+      "exportTargets",
+      "appendExisting",
+    ]);
+    const result = await chrome.runtime.sendMessage({
+      type: "summarize",
+      title: videoTitle(),
+      vi_cues: viCues,
+      export_to: target,
+      target_id: appendExisting ? (exportTargets[target] || "") : "",
+    });
+    if (!result?.ok) {
+      setStatus(result?.error || "Tóm tắt thất bại.", "error");
+      return;
+    }
+    if (result.target_id && result.target && result.target !== "none") {
+      exportTargets[result.target] = result.target_id;
+      await chrome.storage.local.set({ exportTargets });
+    }
+    showSummary(result.summary || "", result.target_url || "", result.target || target);
+    setStatus(result.message || "Đã tóm tắt bài học.", "success");
+    console.log(TAG, "Tóm tắt:", result.summary);
+  } catch (error) {
+    console.warn(TAG, "Lỗi tóm tắt:", error);
+    setStatus("Lỗi kết nối server khi tóm tắt.", "error");
+  } finally {
+    if (ui?.summarize) {
+      ui.summarize.disabled = false;
+      ui.summarize.textContent = "📋 Tóm tắt bài học";
+    }
+  }
 }
 
 async function waitForRetry(ms, attempt, cue, myGeneration, rateLimited = false) {
@@ -1133,6 +1450,12 @@ function resetForNavigation() {
     ui.load.textContent = "Tải script";
     ui.start.disabled = true;
     ui.start.hidden = true;
+    if (ui.summarize) {
+      ui.summarize.hidden = true;
+      ui.summarize.disabled = true;
+    }
+    if (ui.summaryBox) ui.summaryBox.hidden = true;
+    if (ui.summaryLink) ui.summaryLink.style.display = "none";
   }
   setTimeout(mountWidget, 500);
 }
@@ -1144,6 +1467,22 @@ setInterval(() => {
 setInterval(prefetchTick, 300);
 setInterval(playTick, 100);
 document.addEventListener("yt-navigate-finish", resetForNavigation);
+
+// Udemy và các web SPA khác đổi bài bằng History API (không có sự kiện
+// "yt-navigate-finish") → theo dõi id video để reset khi chuyển bài.
+let lastVideoId = PLATFORM === "youtube" ? "" : videoId();
+function watchSpaNavigation() {
+  if (PLATFORM === "youtube") return;
+  const id = videoId();
+  if (!id || id === lastVideoId) return;
+  const changed = lastVideoId !== "";
+  lastVideoId = id;
+  if (changed) {
+    console.log(TAG, "đổi bài mới:", id);
+    resetForNavigation();
+  }
+}
+setInterval(watchSpaNavigation, 700);
 
 chrome.storage.local.get(["enabled"]).then(({ enabled: savedEnabled = false }) => {
   enabled = savedEnabled;
