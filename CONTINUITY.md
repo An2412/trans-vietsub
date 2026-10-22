@@ -36,7 +36,15 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   theo tên qua Drive rồi tự tạo mới. target_id cũ trong chrome.storage bị server
   bỏ qua cho nhánh gdocs (chỉ còn ý nghĩa với Notion).
 - Popup: dòng trạng thái Google không lặp lại email (email chỉ ở dòng tài khoản kèm
-  nút “Ngắt kết nối”).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
+  nút “Ngắt kết nối”).
+- **Chính sách phát lồng tiếng mới (yêu cầu của user, 10/2026): video không bao giờ
+  tự dừng vì lồng tiếng.** Bỏ `pauseForWait`/`pauseForError` (từng dừng video khi
+  audio chưa kịp hoặc lỗi); thay bằng: câu lỗi → state `skipfail` và video chạy tiếp
+  (`Thử lại lỗi` retry được), audio vượt qua điểm câu sau → cắt nốt câu trước
+  (`cutCurrentAudio`) và đọc ngay câu sau, audio vào giữa câu (tua/reload) → nhảy
+  audio tới đúng vị trí bằng `midCueResumeFraction` thay vì đọc lại từ đầu.
+  Dò phụ đề YouTube phải bật CC thật nudge; nếu CC vốn tắt thì `restoreCcButton`
+  tắt lại sau khi lấy xong script (phụ đề không “tự mở”).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
   chặn request có `Origin: https://<site>`; fetch của content script dùng origin của trang.
 - `install.bat` fallback sang `python` nếu không có launcher `py`.
 

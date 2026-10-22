@@ -43,7 +43,7 @@ Server bind vào `127.0.0.1`; không đổi sang `0.0.0.0`. Cache và metadata p
 1. Tại `chrome://extensions`, bật **Developer mode**, bấm **Load unpacked** và chọn thư mục `extension`.
 2. Bấm biểu tượng Viet Dub trên thanh extension. Chọn provider, kiểm tra hoặc sửa `Model ID`, dán API key vào ô mật khẩu.
 3. Bấm **Kiểm tra API** để gửi một câu mẫu và xác nhận provider/model/key hoạt động. Nút này gọi API thật nên có thể dùng quota/chi phí. Kiểm tra thành công rồi bấm **Lưu cấu hình**; key sẽ được xóa khỏi ô nhập sau khi lưu.
-4. Nút **Kiểm tra** ở trên cùng chỉ kiểm tra server và tải metadata cấu hình đã lưu khi bạn chủ động bấm. Riêng trạng thái Google/Notion được đọc lại khi mở popup, nhưng chỉ sau khi server trả lời `/health`.
+4. Nút **Kiểm tra** ở trên cùng đọc lại mọi trạng thái một lần nữa (server, cấu hình đã lưu, Google/Notion). Khi mở popup, những trạng thái này cũng được tải **tự động** — không cần bấm trước.
 5. Mở video YouTube có phụ đề, bật CC, bấm **Tải script**, rồi chọn **Phát & lồng tiếng**. Popup giữ nguyên nút bật/tắt lồng tiếng hiện có.
 
 Tên provider/model lưu trong Chrome để điền lại giao diện; API key không được ghi vào `chrome.storage`, mã nguồn, SQLite hay log. Server lưu khóa trong kho bí mật của hệ điều hành. Extension gửi key tới server cục bộ qua loopback trong thao tác **Kiểm tra API** hoặc **Lưu cấu hình**; server mới gọi dịch vụ AI.
@@ -76,6 +76,16 @@ Extension đã khai báo sẵn `udemy.com` trong `content_scripts` và `host_per
 
 Khi bạn chuyển sang bài khác trên Udemy (SPA đổi URL), extension tự phát hiện và reset trạng thái để bạn tải script lại.
 
+### Chính sách phát lồng tiếng (video không bao giờ tự dừng)
+
+Từ bản này, lồng tiếng **không tự dừng video** nữa:
+
+- Audio chưa kịp tạo khi câu tới giờ → video vẫn chạy; audio xong lúc nào ngắt dạt lúc đó, trễ quá `6s` thì câu bị bỏ qua.
+- Audio câu trước vướt sang câu sau → nếu còn `<= 0.75s` thì tăng tốc nhẹ đọc nốt; nếu quá đó thì cắt nốt câu trước và đọc ngay câu sau (không giữ video lại).
+- Câu lỗi sau đủ lần thử → bị **bỏ qua** và video tiếp tục; nhãn `Thử lại lỗi` cho phép dịch lại các câu đã bỏ qua.
+- Tua/reload vào giữa câu → giọng đọc **tiếp nối** từ đúng vị trí giữa câu (không đọc lại từ đầu).
+- Dò phụ đề YouTube cần bật CC thật; nếu CC của bạn vốn tắt, extension tự tắt lại sau khi đã lấy script (phụ đề không "tự mở" trên màn hình).
+
 Với website khác không có trong `matches`, hãy thêm domain vào `content_scripts` và `host_permissions` trong `extension/manifest.json` rồi bấm **Reload** tại `chrome://extensions`.
 
 ## Tóm tắt bài học: Google Docs hoặc Notion
@@ -89,7 +99,7 @@ cũng trả `403` nếu gọi `/summarize` trực tiếp, nên không thể dùn
 1. Trong popup chọn **Nơi lưu bản tóm tắt**: `Google Docs`, `Notion (trang con)` hoặc `Chỉ hiện trong widget`.
 2. Bấm **Tải script** rồi **📋 Tóm tắt bài học** trên widget của video. Extension sẽ dịch phần phụ đề chưa có bản Tiếng Việt, nhờ AI rút gọn theo 5 mục (Mục tiêu / Nội dung chính / Khái niệm quan trọng / Kỹ năng–Công cụ / Tóm tắt một câu), rồi lưu ra đích đã chọn.
 3. Bản tóm tắt luôn hiện trong widget (mục *Xem bản tóm tắt*) kèm link mở tài liệu.
-4. Tùy chọn **Ghi tiếp vào tài liệu đã tạo**: bật thì các video sau nối tiếp vào cùng một tài liệu; tắt thì mỗi video tạo một tài liệu riêng.
+4. Tùy chọn **Notion: ghi tiếp vào page đã tạo** chỉ áp dụng cho Notion; Google Docs luôn ghi theo thẻ trong một sổ tay (xem mục kế tiếp).
 
 Bản tóm tắt được cache trong SQLite local theo cặp *tiêu đề + nội dung phụ đề*, nên bấm lại trên cùng video không tốn quota.
 

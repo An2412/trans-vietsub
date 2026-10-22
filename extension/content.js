@@ -526,7 +526,7 @@ function calculateAdaptivePlaybackRate(cue, naturalDuration, videoRate) {
 
   const currentIndex = cues.indexOf(cue);
   const nextCue = currentIndex >= 0
-    ? cues.slice(currentIndex + 1).find((c) => !["played", "skipped"].includes(c.state))
+    ? cues.slice(currentIndex + 1).find((c) => !isConsumedState(c.state))
     : null;
 
   let windowSeconds = 0;
@@ -767,14 +767,16 @@ async function loadCuesYouTube(id) {
   const nudgeAt = Date.now() + 2500;
   let nudged = false;
   let triedUrl = "";
+  let ccWasOn = false;
   while (Date.now() < deadline) {
     // Chưa thấy request phụ đề: tắt/bật lại nút CC để YouTube gửi lại request.
     if (!nudged && Date.now() >= nudgeAt && !timedtextUrl()) {
       nudged = true;
       const button = document.querySelector(".ytp-subtitles-button");
       if (button) {
+        ccWasOn = button.getAttribute("aria-pressed") === "true";
         setStatus("Chưa thấy request phụ đề; đang bật/tắt lại CC…", "working");
-        if (button.getAttribute("aria-pressed") === "true") { button.click(); await sleep(500); }
+        if (ccWasOn) { button.click(); await sleep(500); }
         button.click();
       }
     }
@@ -797,6 +799,9 @@ async function loadCuesYouTube(id) {
             if (id !== videoId()) throw new Error("Video đã đổi trong lúc tải phụ đề.");
             cues = next;
             loadedFor = id;
+            // Dò phụ đề phải bật CC thật; nếu vốn tắt thì tắt lại để phụ đề
+            // không "tự mở" trên màn hình sau khi tải script.
+            restoreCcButton(ccWasOn);
             return true;
           }
         }
@@ -810,13 +815,21 @@ async function loadCuesYouTube(id) {
   throw new Error("Không tìm thấy phụ đề. Bật CC, chờ phụ đề hiện trên video rồi thử lại.");
 }
 
+// Mẹo dò URL phụ đề phải bật CC thật; nếu CC vốn tắt thì tắt lại sau khi đã lấy script.
+async function restoreCcButton(ccWasOn) {
+  if (ccWasOn) return;
+  await sleep(400); // đợi YouTube cập nhật trạng thái nút sau lần click cuối
+  const button = document.querySelector(".ytp-subtitles-button");
+  if (button && button.getAttribute("aria-pressed") === "true") button.click();
+}
+
 async function onLoadButton() {
   if (loadingScript) return;
   if (syncAdState()) {
     setStatus("Hãy đợi quảng cáo kết thúc rồi tải script.", "idle");
     return;
   }
-  if (cues.some((cue) => cue.state === "failed")) {
+  if (cues.some((cue) => cue.state === "skipfail")) {
     await retryFailedCues();
     return;
   }
@@ -1052,47 +1065,20 @@ function refreshWorkingStatus() {
   setStatus(`Đang lồng tiếng cuốn chiếu · ${ready}/${cues.length} câu đã sẵn sàng.`, "working");
 }
 
-function pauseForWait(cue) {
-  const video = getVideo();
-  if (!video) return;
-  if (!video.paused) {
-    autoPaused = true;
-    video.pause();
-  }
-  setStatus("Đang chờ tạo giọng cho câu kế tiếp; video tạm dừng để giữ đồng bộ…", "working");
-  if (cue.state === "new") prefetchTick(true);
-}
-
-function pauseForError(cue, error) {
-  fatalError = true;
-  const video = getVideo();
-  if (video && !video.paused) {
-    autoPaused = true;
-    video.pause();
-  }
-  setStatus(`Dịch/TTS lỗi sau ${MAX_RETRIES + 1} lần thử (${error}). Video đã tạm dừng để tránh lệch. Bấm “Thử lại lỗi”.`, "error");
+function skipFailedCue(cue, error) {
+  // Chính sách "video không tự dừng vì lồng tiếng": bỏ qua câu lỗi, video chạy
+  // tiếp. Người dùng vẫn có thể bấm “Thử lại lỗi” để dịch lại các câu đã bỏ qua.
+  cue.state = "skipfail";
+  setStatus(`Bỏ qua câu lỗi (${error}); video vẫn chạy. Bấm “Thử lại lỗi” để dịch lại các câu bị bỏ qua.`, "error");
   if (ui) {
     ui.load.disabled = false;
     ui.load.textContent = "Thử lại lỗi";
-    ui.start.disabled = true;
   }
-  console.warn(TAG, "Tạm dừng vì không tạo được giọng cho câu:", cue.en, error);
+  console.warn(TAG, "Bỏ qua câu không tạo được giọng:", cue.en, error);
 }
 
 function handleCueFailure(cue, error) {
-  const video = getVideo();
-  const secondsUntilCue = cue.start - (video?.currentTime || 0);
-  const pauseThreshold = Math.max(4, (video?.playbackRate || 1) * 3);
-  if (secondsUntilCue <= pauseThreshold) {
-    pauseForError(cue, error);
-    return;
-  }
-  setStatus(`Một câu phía trước bị lỗi (${error}); video vẫn chạy. Sẽ tạm dừng nếu câu đó chưa xử lý được khi sắp tới.`, "error");
-  if (ui) {
-    ui.load.disabled = false;
-    ui.load.textContent = "Thử lại lỗi";
-  }
-  console.warn(TAG, "Lỗi ở câu chưa tới; chưa dừng video:", cue.en, error);
+  skipFailedCue(cue, error);
 }
 
 async function processCue(cue, myGeneration = generation) {
@@ -1187,7 +1173,7 @@ function prefetchTick(force = false) {
 }
 
 async function retryFailedCues() {
-  const failed = cues.filter((cue) => cue.state === "failed");
+  const failed = cues.filter((cue) => cue.state === "skipfail");
   if (!failed.length || loadingScript) return;
   fatalError = false;
   loadingScript = true;
@@ -1209,14 +1195,14 @@ async function retryFailedCues() {
   await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, failed.length) }, worker));
   if (myGeneration === generation) {
     loadingScript = false;
-    const remainingFailures = cues.filter((cue) => cue.state === "failed").length;
+    const remainingFailures = cues.filter((cue) => cue.state === "skipfail").length;
     if (!fatalError && remainingFailures) {
       if (ui) {
         ui.load.disabled = false;
         ui.load.textContent = "Thử lại lỗi";
         ui.start.disabled = false;
       }
-      setStatus(`Còn ${remainingFailures} câu lỗi. Video sẽ dừng khi sắp tới câu chưa xử lý được.`, "error");
+      setStatus(`Còn ${remainingFailures} câu lỗi đã bỏ qua. Video vẫn chạy; bấm “Thử lại lỗi” để thử tiếp.`, "error");
     } else if (!fatalError) {
       if (ui) {
         ui.load.disabled = true;
@@ -1239,10 +1225,10 @@ function resumeIfReady() {
   const now = video.currentTime;
 
   // Kiểm tra xem có câu nào đang đến lượt (hoặc trễ) mà chưa có audio không
-  const dueCue = cues.find((cue) => !["played", "skipped"].includes(cue.state) && cue.start <= now + 0.25 && cue.end + MAX_LATE_S >= now);
+  const dueCue = cues.find((cue) => !isConsumedState(cue.state) && cue.start <= now + 0.25 && cue.end + MAX_LATE_S >= now);
   if (dueCue) {
     if (dueCue.state === "failed") {
-      pauseForError(dueCue, "translation_or_tts_failed");
+      skipFailedCue(dueCue, "translation_or_tts_failed");
       return;
     }
     if (!dueCue.audio) {
@@ -1284,6 +1270,37 @@ function toggleDubbing() {
 }
 
 // ---------- Phát đúng thời điểm ----------
+// Câu đã phát/bỏ qua/lỗi-đã-bỏ-qua: không được phát lại cũng không chặn câu sau.
+function isConsumedState(state) {
+  return state === "played" || state === "skipped" || state === "skipfail";
+}
+
+// Cắt nốt câu đang đọc (khi câu sau đã tới giờ) nhưng KHÔNG dừng video.
+function cutCurrentAudio() {
+  const audio = currentAudio;
+  const cue = currentCue;
+  if (!audio) return;
+  audio.onended = null;
+  audio.onerror = null;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  currentAudio = null;
+  if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+  currentAudioUrl = null;
+  currentCue = null;
+  if (cue) cleanupCueAudio(cue);
+}
+
+// Tỷ lệ thời lượng audio cần bỏ qua để khớp thời điểm hiện tại của video.
+// 0 = phát cả câu (video chưa vào sâu trong câu).
+function midCueResumeFraction(cue, now) {
+  if (!cue || !(cue.end > cue.start)) return 0;
+  const into = now - cue.start;
+  if (into <= 0.6) return 0; // vào câu chưa sâu: đọc từ đầu cho tự nhiên
+  return Math.min(0.92, into / (cue.end - cue.start));
+}
+
 function playCue(cue, now) {
   let audio = cue.audioElement;
   let url = cue.audioUrl;
@@ -1315,7 +1332,7 @@ function playCue(cue, now) {
       const v = getVideo();
       if (v && !v.paused && enabled && scriptLoaded && !fatalError) {
         const nextNow = v.currentTime;
-        const nextDue = cues.find((c) => !["played", "skipped"].includes(c.state) && c.start <= nextNow && c.end + MAX_LATE_S >= nextNow);
+        const nextDue = cues.find((c) => !isConsumedState(c.state) && c.start <= nextNow && c.end + MAX_LATE_S >= nextNow);
         if (nextDue && nextDue.audio) {
           playCue(nextDue, nextNow);
         }
@@ -1328,6 +1345,23 @@ function playCue(cue, now) {
   currentAudio = audio;
   currentCue = cue;
   cue.state = "played";
+
+  // Đang phát trễ hoặc vừa tua/reload: tiếp nối giữa câu thay vì đọc lại từ đầu —
+  // giọng đọc nhảy tới đúng vị trí khớp với thời điểm hiện tại của video.
+  const resumeFraction = midCueResumeFraction(cue, now);
+  if (resumeFraction > 0) {
+    const applyOffset = () => {
+      try {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = Math.min(audio.duration - 0.05, resumeFraction * audio.duration);
+        }
+      } catch (_) {
+        /* Chưa nhảy được (audio chưa mở) thì phát từ đầu câu. */
+      }
+    };
+    if (audio.readyState >= 1) applyOffset();
+    else audio.addEventListener("loadedmetadata", applyOffset, { once: true });
+  }
 
   audio.play().catch((error) => {
     console.warn(TAG, "Không phát được âm thanh:", error.message);
@@ -1349,7 +1383,7 @@ function playTick() {
       return;
     }
     const currentIndex = cues.indexOf(currentCue);
-    const nextCue = cues.slice(currentIndex + 1).find((cue) => !["played", "skipped"].includes(cue.state));
+    const nextCue = cues.slice(currentIndex + 1).find((cue) => !isConsumedState(cue.state));
     if (nextCue && nextCue.start <= now + 0.3) {
       const dur = currentAudio.duration;
       const curTime = currentAudio.currentTime;
@@ -1364,37 +1398,40 @@ function playTick() {
         return;
       }
 
-      // Chỉ dừng video khi audio câu trước còn quá dài (> 0.75s) VÀ video đã trôi qua điểm bắt đầu câu sau
+      // Câu sau đã tới giờ: KHÔNG dừng video nữa — cắt nốt câu trước và chuyển
+      // ngay sang câu sau để video luôn chạy liên tục.
       if (now >= nextCue.start + 0.25) {
-        autoPaused = true;
-        video.pause();
-        setStatus("Đang chờ câu đọc hiện tại kết thúc; video tạm dừng để không vượt phụ đề…", "working");
+        cutCurrentAudio();
+        playCue(nextCue, now);
+        return;
       }
     }
     return;
   }
 
   for (const cue of cues) {
-    if (cue.state === "played" || cue.state === "skipped") continue;
+    if (isConsumedState(cue.state)) continue;
     if (cue.start > now) break;
     if (cue.end + MAX_LATE_S < now) {
       cue.state = "skipped";
       continue;
     }
     if (cue.state === "failed") {
-      pauseForError(cue, "tts_failed");
-      return;
+      skipFailedCue(cue, "dịch/tts thất bại");
+      continue;
     }
     if (cue.audio) {
       playCue(cue, now);
       return;
     }
-    // Cho phép vùng đệm 0.4s để tải audio trước khi buộc dừng video
+    // Cho phép vùng đệm 0.4s để tải audio trước khi phải đọc trễ
     if (now - cue.start < AUDIO_GRACE_PERIOD_S) {
       if (cue.state === "new") processCue(cue, generation);
       return;
     }
-    pauseForWait(cue);
+    // Quá vùng đệm mà audio chưa xong: video vẫn chạy (không tự dừng nữa) —
+    // audio xong lúc nào thì đọc dạt lúc đó; quá trễ (end + MAX_LATE_S) thì bị bỏ qua.
+    if (cue.state === "new") processCue(cue, generation);
     return;
   }
 }
