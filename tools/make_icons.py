@@ -1,38 +1,88 @@
 # -*- coding: utf-8 -*-
-"""Sinh bộ icon extension từ thiết kế "trans-vietsub".
+"""Sinh bộ icon extension: ghost đeo headphone (thiết kế user gửi).
 
-Thiết kế: vuông bo tròn xanh đậm (gradient nhẹ), tam giác phát trắng viền tròn
-kèm thanh dọc bên trong, đèn nền xanh sáng quanh glyph. Xuất 16/32/48/128 px
-để dùng trong manifest (action + icons).
+Nền: vuông bo tròn gần đen full-bleed. Glyph: ghost trắng viền tròn
+(đầu vòm, đuôi răng cưa, hai mắt nghiêng), dải headphone phủ lên đầu và
+hai earmuff (trái nhỏ, phải lớn có viên thuốc trắng bên trong).
+Xuất 16/32/48/128 px vào extension/icons/.
 """
-import os
+import math
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 S = 2048  # master size (supersample)
 
-TOP_COLOR = (47, 63, 82)      # #2f3f52 — phần trên mặt vuông
-BOTTOM_COLOR = (26, 38, 54)   # #1a2636 — phần dưới
-GLOW_COLOR = (168, 210, 255)  # #a8d2ff — ánh sáng quanh glyph
-WHITE = (255, 255, 255, 255)
+BG_TOP = (13, 14, 17)     # #0d0e11
+BG_BOTTOM = (8, 9, 11)    # #08090b
+WHITE = (245, 247, 250, 255)
+CORNER = 0.20             # bo góc mặt vuông
+STROKE = 0.038            # độ dày nét glyph (tỷ lệ theo S)
 
-STROKE = 0.055      # độ dày viền tam giác (tỷ lệ theo S)
-GLOW_BLUR = 0.045
-TRI_TL = (0.250, 0.205)   # đỉnh trên trái
-TRI_BL = (0.250, 0.795)   # đỉnh dưới trái
-TRI_R = (0.665, 0.500)    # đỉnh phải (mũi phát)
-BAR_X0, BAR_X1 = 0.430, 0.500
-BAR_Y0, BAR_Y1 = 0.410, 0.625
-CORNER = 0.185            # bo góc mặt vuông
+C = (0.478, 0.435)        # tâm cụm đầu + headphone
+BAND_R = 0.222            # bán kính dải headphone
+DOME_R = 0.175            # bán kính vòm đầu
+
+LEFT_CUP = (0.262, 0.445, 0.318, 0.600)   # earmuff trái (nhỏ)
+RIGHT_CUP = (0.610, 0.390, 0.735, 0.640)  # earmuff phải (lớn)
+PILL = (0.668, 0.462, 0.700, 0.578)       # viên thuốc trắng trong earmuff phải
+EYE_L = (0.355, 0.535, 0.026, 0.013, -20)
+EYE_R = (0.443, 0.515, 0.034, 0.016, -20)
+
+
+def arc_points(cx, cy, r, a0, a1, steps):
+    pts = []
+    for i in range(steps + 1):
+        t = math.radians(a0 + (a1 - a0) * i / steps)
+        pts.append(((cx + r * math.cos(t)) * S, (cy - r * math.sin(t)) * S))
+    return pts
+
+
+def quad_points(p0, p1, p2, steps):
+    pts = []
+    for i in range(steps + 1):
+        t = i / steps
+        x = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t ** 2 * p2[0]
+        y = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t ** 2 * p2[1]
+        pts.append((x * S, y * S))
+    return pts
+
+
+def rotated_ellipse(cx, cy, rx, ry, deg, steps=48):
+    a = math.radians(deg)
+    ca, sa = math.cos(a), math.sin(a)
+    pts = []
+    for i in range(steps):
+        t = 2 * math.pi * i / steps
+        ex, ey = rx * math.cos(t), ry * math.sin(t)
+        pts.append(((cx + ex * ca - ey * sa) * S, (cy - (ex * sa + ey * ca)) * S))
+    return pts
+
+
+def body_points():
+    """Nét viền thân ghost: vòm đầu -> sườn phải -> đuôi răng cưa -> sườn trái (vòng kín)."""
+    pts = arc_points(C[0], C[1], DOME_R, 180, 0, 72)
+    pts += quad_points((0.653, 0.435), (0.695, 0.530), (0.670, 0.700), 40)[1:]
+    xs = [0.670, 0.618, 0.566, 0.514, 0.462, 0.410, 0.358, 0.306]
+    for i, x in enumerate(xs):
+        if i == 0:
+            y = 0.700
+        elif i == len(xs) - 1:
+            y = 0.705
+        else:
+            y = 0.705 if i % 2 == 0 else 0.755
+        if i:
+            pts.append((x * S, y * S))
+    pts += quad_points((0.306, 0.705), (0.278, 0.565), (0.303, 0.435), 40)[1:]
+    return pts
 
 
 def rounded_square() -> Image.Image:
     gradient = Image.new("RGB", (1, S))
     for y in range(S):
         t = y / (S - 1)
-        r = round(TOP_COLOR[0] + (BOTTOM_COLOR[0] - TOP_COLOR[0]) * t)
-        g = round(TOP_COLOR[1] + (BOTTOM_COLOR[1] - TOP_COLOR[1]) * t)
-        b = round(TOP_COLOR[2] + (BOTTOM_COLOR[2] - TOP_COLOR[2]) * t)
+        r = round(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * t)
+        g = round(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * t)
+        b = round(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
         gradient.putpixel((0, y), (r, g, b))
     gradient = gradient.resize((S, S))
     mask = Image.new("L", (S, S), 0)
@@ -42,49 +92,58 @@ def rounded_square() -> Image.Image:
     return icon
 
 
-def glyph_layer() -> Image.Image:
-    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    p1 = (TRI_TL[0] * S, TRI_TL[1] * S)
-    p2 = (TRI_BL[0] * S, TRI_BL[1] * S)
-    p3 = (TRI_R[0] * S, TRI_R[1] * S)
-    width = int(STROKE * S)
-    # Viền tam giác: ba cạnh + chấm tròn ở đỉnh cho góc bo tròn.
-    draw.line([p1, p2], fill=WHITE, width=width)
-    draw.line([p2, p3], fill=WHITE, width=width)
-    draw.line([p3, p1], fill=WHITE, width=width)
-    r = width / 2
-    for (x, y) in (p1, p2, p3):
-        draw.ellipse([x - r, y - r, x + r, y + r], fill=WHITE)
-    # Thanh dọc bên trong (capsule).
-    bx0, bx1 = BAR_X0 * S, BAR_X1 * S
-    by0, by1 = BAR_Y0 * S, BAR_Y1 * S
-    draw.rounded_rectangle([bx0, by0, bx1, by1], radius=(bx1 - bx0) / 2, fill=WHITE)
-    return layer
-
-
-def compose() -> Image.Image:
+def compose(stroke=STROKE, detailed=True, with_band=True) -> Image.Image:
     icon = rounded_square()
-    glyph = glyph_layer()
-    # Đèn nền: glyph bị blur, nhuốm xanh sáng, alpha ~55%.
-    glow = glyph.filter(ImageFilter.GaussianBlur(GLOW_BLUR * S))
-    a = glow.getchannel("A").point(lambda v: int(v * 0.55))
-    glow_tint = Image.new("RGBA", (S, S), GLOW_COLOR + (0,))
-    glow_tint.putalpha(a)
-    icon = Image.alpha_composite(icon, glow_tint)
-    icon = Image.alpha_composite(icon, glyph)
-    return icon
+    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    w = round(stroke * S)
+    half = w / 2
+
+    # Dải headphone vòm qua đầu (nét + chấm tròn hai đầu); bỏ ở bản 16/32px
+    # vì sát đầu quá thành cục nhoè.
+    if with_band:
+        band = arc_points(C[0], C[1], BAND_R, 200, 340, 72)
+        d.line(band, fill=WHITE, width=w, joint="curve")
+        for p in (band[0], band[-1]):
+            d.ellipse([p[0] - half, p[1] - half, p[0] + half, p[1] + half], fill=WHITE)
+
+    # Earmuff trái (nằm sau, vẽ trước thân).
+    d.rounded_rectangle([LEFT_CUP[0] * S, LEFT_CUP[1] * S, LEFT_CUP[2] * S, LEFT_CUP[3] * S],
+                        radius=0.028 * S, outline=WHITE, width=w)
+
+    # Thân ghost (nét viền kín, lòng để đen).
+    d.line(body_points(), fill=WHITE, width=w, joint="curve")
+
+    # Earmuff phải đè lên thân (+ viên thuốc trắng trong bản chi tiết).
+    d.rounded_rectangle([RIGHT_CUP[0] * S, RIGHT_CUP[1] * S, RIGHT_CUP[2] * S, RIGHT_CUP[3] * S],
+                        radius=0.052 * S, outline=WHITE, width=w)
+    if detailed:
+        d.rounded_rectangle([PILL[0] * S, PILL[1] * S, PILL[2] * S, PILL[3] * S],
+                            radius=0.016 * S, fill=WHITE)
+        # Hai mắt nghiên (đẩy góc nhợn).
+        d.polygon(rotated_ellipse(*EYE_L), fill=WHITE)
+        d.polygon(rotated_ellipse(*EYE_R), fill=WHITE)
+
+    return Image.alpha_composite(icon, layer)
 
 
 def main() -> None:
-    master = compose()
     out_dir = "extension/icons"
+    import os
     os.makedirs(out_dir, exist_ok=True)
-    for size in (128, 48, 32, 16):
+    # Kích thước nhỏ dùng nét dày hơn và bỏ chi tiết nhỏ (mắt/viên thuốc)
+    # để không bị nhoè thành cục khi LANCZOS thu nhỏ.
+    specs = {
+        128: (0.038, True, True),
+        48: (0.046, True, True),
+        32: (0.062, False, False),
+        16: (0.095, False, False),
+    }
+    for size, (stroke, detailed, with_band) in specs.items():
+        master = compose(stroke=stroke, detailed=detailed, with_band=with_band)
         img = master.resize((size, size), Image.LANCZOS)
-        path = f"{out_dir}/icon{size}.png"
-        img.save(path)
-        print("wrote", path)
+        img.save(f"{out_dir}/icon{size}.png")
+        print("wrote", f"{out_dir}/icon{size}.png")
 
 
 if __name__ == "__main__":

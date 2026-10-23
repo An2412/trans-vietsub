@@ -49,11 +49,13 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   “💾 Lưu tóm tắt để học”; không hề có auto-save (chỉ bấm mới tóm tắt/lưu).
   buildCues tách câu ở khoảng lặng ≥ 0.45s (trước 0.65s, min độ dài 14) để khoảng
   nghỉ giữa câu lồng tiếng bám nhịp giọng đọc gốc.
-- **Icon extension “trans-vietsub”** (yêu cầu của user): `tools/make_icons.py` (Pillow,
-  venv server) vẽ huy hiệu vuông bo tròn xanh đậm (#2f3f52→#1a2636) với tam giác phát
-  trắng viền tròn + thanh dọc bên trong và ánh sáng xanh nhạt (#a8d2ff); xuất 4 kích
-  thước vào `extension/icons/icon{128,48,32,16}.png`; manifest gõ cả `action.default_icon`
-  lẫn `icons`. Chạy lại bằng `server\.venv\Scripts\python.exe tools\make_icons.py`.
+- **Icon extension “ghost đeo headphone”** (yêu cầu của user 10/2026, thay thiết kế
+  tam giác play đầu tiên): `tools/make_icons.py` (Pillow, venv server) vẽ vuông gần đen
+  (#0d0e11→#08090b) bo tròn full-bleed với ghost trắng viền tròn (vòm đầu, đuôi răng
+  cưa, hai mắt nghiêng), dải headphone qua đầu + earmuff trái nhỏ/phải lớn có viên
+  thuốc trắng; xuất `extension/icons/icon{128,48,32,16}.png`. Cỡ 32/16 bỏ dải headphone
+  + chi tiết nhỏ và tăng độ dày nét (0.062/0.095) để không nhoè; 128/48 giữ nét 0.038/
+  0.046 kèm mắt + viên thuốc. Chạy: `server\.venv\Scripts\python.exe tools\make_icons.py`.
 - **Bubble thu gọn tự mờ khi rảnh 10s** (yêu cầu của user, “càng mờ càng tốt”):
   `.bubble` có `transition: opacity`; `data-idle="true"` ⇒ opacity 0.02; hover/focus
   phục hồi ở .2s. JS: `armBubbleIdleFade()`/`wakeBubble()` + `BUBBLE_IDLE_MS=10000`, armed khi
