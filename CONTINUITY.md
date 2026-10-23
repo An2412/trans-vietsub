@@ -49,6 +49,15 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   “💾 Lưu tóm tắt để học”; không hề có auto-save (chỉ bấm mới tóm tắt/lưu).
   buildCues tách câu ở khoảng lặng ≥ 0.45s (trước 0.65s, min độ dài 14) để khoảng
   nghỉ giữa câu lồng tiếng bám nhịp giọng đọc gốc.
+- **Icon extension “trans-vietsub”** (yêu cầu của user): `tools/make_icons.py` (Pillow,
+  venv server) vẽ huy hiệu vuông bo tròn xanh đậm (#2f3f52→#1a2636) với tam giác phát
+  trắng viền tròn + thanh dọc bên trong và ánh sáng xanh nhạt (#a8d2ff); xuất 4 kích
+  thước vào `extension/icons/icon{128,48,32,16}.png`; manifest gõ cả `action.default_icon`
+  lẫn `icons`. Chạy lại bằng `server\.venv\Scripts\python.exe tools\make_icons.py`.
+- **Bubble thu gọn tự mờ khi rảnh 10s** (yêu cầu của user, “càng mờ càng tốt”):
+  `.bubble` có `transition: opacity`; `data-idle="true"` ⇒ opacity 0.02; hover/focus
+  phục hồi ở .2s. JS: `armBubbleIdleFade()`/`wakeBubble()` + `BUBBLE_IDLE_MS=10000`, armed khi
+  `setWidgetCollapsed(true)`, reset trên pointerenter/down/leave (leave re-arm).
 - Edge TTS rớt thoáng NoAudioReceived (tái hiện trên máy: cùng câu/giọng lần 1-2
   FAIL lần 3 OK): `synth()` tự retry theo plan HoaiMy → HoaiMy (0.7s) → fallback
   NamMinh (1.4s); stream 0 byte cũng tính là fail (`test_tts_retry.py`, 4 case).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`

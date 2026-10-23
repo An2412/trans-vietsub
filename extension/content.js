@@ -277,7 +277,10 @@ function mountWidget() {
       .badge { color:#b6c4d5; font-size:11px; }
       .tools { display:flex; align-items:center; gap:7px; }
       .iconButton { flex:0 0 25px; min-height:25px; padding:0; border-radius:6px; background:#3b414b; font-size:17px; }
-      .bubble { width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.45); cursor:grab; touch-action:none; }
+      .bubble { width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.45); cursor:grab; touch-action:none;
+        transition: opacity 1.6s ease; }
+      .bubble[data-idle="true"] { opacity: 0.02; }
+      .bubble:hover, .bubble:focus-visible { opacity: 1; transition: opacity .2s ease; }
       .status { min-height:36px; color:#d5d9df; margin:4px 0 8px; overflow-wrap:anywhere; }
       .status[data-kind="success"] { color:#80e1a4; }
       .status[data-kind="error"] { color:#ffaaaa; }
@@ -322,7 +325,7 @@ function mountWidget() {
         <button id="start" class="secondary" type="button" disabled hidden>▶ Phát &amp; lồng tiếng</button>
       </div>
       <div class="actions">
-        <button id="summarize" class="tertiary" type="button" disabled hidden>📋 Tóm tắt bài học</button>
+        <button id="summarize" class="tertiary" type="button" disabled hidden>💾 Lưu tóm tắt để học</button>
       </div>
       <div id="summaryLink" class="summaryLink"><a id="summaryLinkAnchor" href="#" target="_blank" rel="noopener"></a></div>
       <details id="summaryBox" class="summaryBox" hidden>
@@ -369,6 +372,11 @@ function mountWidget() {
   });
   initWidgetDrag(player, ui.dragHandle);
   initWidgetDrag(player, ui.bubble, true);
+  ui.bubble.addEventListener("pointerenter", wakeBubble);
+  ui.bubble.addEventListener("pointerdown", wakeBubble);
+  ui.bubble.addEventListener("pointerleave", () => {
+    if (widgetCollapsed) armBubbleIdleFade();
+  });
   updateVideoRateUi(getVideo()?.playbackRate || 1);
   const thisHost = host;
   chrome.storage.local.get(["widgetPosition", "widgetCollapsed"]).then((saved) => {
@@ -379,8 +387,37 @@ function mountWidget() {
   return true;
 }
 
+// Bubble thu gọn: 10s không ai đụng → mờ gần như biến mất; đụng vào là rõ lại.
+const BUBBLE_IDLE_MS = 10000;
+let bubbleIdleTimer = null;
+
+function armBubbleIdleFade() {
+  if (bubbleIdleTimer) {
+    clearTimeout(bubbleIdleTimer);
+    bubbleIdleTimer = null;
+  }
+  if (!widgetCollapsed) return;
+  bubbleIdleTimer = setTimeout(() => {
+    bubbleIdleTimer = null;
+    if (ui && widgetCollapsed) ui.bubble.dataset.idle = "true";
+  }, BUBBLE_IDLE_MS);
+}
+
+function wakeBubble() {
+  if (!ui || !widgetCollapsed) return;
+  delete ui.bubble.dataset.idle;
+  armBubbleIdleFade();
+}
+
 function setWidgetCollapsed(value, persist = false) {
   widgetCollapsed = Boolean(value);
+  if (widgetCollapsed) {
+    armBubbleIdleFade();
+  } else if (bubbleIdleTimer) {
+    clearTimeout(bubbleIdleTimer);
+    bubbleIdleTimer = null;
+    if (ui) delete ui.bubble.dataset.idle;
+  }
   if (ui) {
     ui.panel.hidden = widgetCollapsed;
     ui.bubble.hidden = !widgetCollapsed;

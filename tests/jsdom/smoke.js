@@ -245,7 +245,7 @@ function testSummarizeFlow() {
       status && status.textContent);
 
     check(summarize.disabled === false, "nút Tóm tắt bật lại sau khi xong");
-    check(summarize.textContent.includes("Tóm tắt"), "nhãn nút trở lại bình thường",
+    check(summarize.textContent.includes("Lưu tóm tắt"), "nhãn nút trở lại bình thường",
       summarize.textContent);
     finish();
   }, 300);
