@@ -30,6 +30,10 @@ from tts_cache import TTSCache
 log = logging.getLogger("uvicorn.error")
 
 VOICE = "vi-VN-HoaiMyNeural"  # hoặc vi-VN-NamMinhNeural
+# Edge TTS với service cũ thoáng (đã tái hiện): cùng câu/giọng lần 1 FAIL, lần 2 OK.
+# synth() thử lại theo plan dưới đây; tiếng cuối đổi sang giọng dự phòng.
+_TTS_FALLBACK_VOICE = "vi-VN-NamMinhNeural"
+_TTS_RETRY_DELAYS_S = (0.0, 0.7, 1.4)
 MAX_BATCH = 16
 CACHE_DB = Path(__file__).resolve().parent / "data" / "vietdub.sqlite3"
 
@@ -199,11 +203,40 @@ def translate_with_cache(text: str, target: str = "vi") -> tuple[str, str]:
 
 
 async def synth(text: str) -> bytes:
-    buf = bytearray()
-    async for chunk in edge_tts.Communicate(text, VOICE).stream():
-        if chunk["type"] == "audio":
-            buf += chunk["data"]
-    return bytes(buf)
+    """Tạo giọng Edge TTS, tự thử lại khi service rớt thoáng (NoAudioReceived).
+
+    Đã tái hiện bằng bản dựng thật trên máy: cùng câu văn, cùng giọng, lần đầu
+    FAIL còn lần sau lại OK — không phụ thuộc nội dung, là lỗi thoáng của service.
+    Vì thế /speak phải tự thử lại với khoảng nghỉ ngắn, và
+    lần cuối đổi sang giọng Việt Nam dự phòng thay vì trả 502 về client ngay.
+    """
+    plan: list[tuple[str, float]] = [
+        (VOICE, _TTS_RETRY_DELAYS_S[0]),
+        (VOICE, _TTS_RETRY_DELAYS_S[1]),
+        (_TTS_FALLBACK_VOICE, _TTS_RETRY_DELAYS_S[2]),
+    ]
+    last_error: Exception = RuntimeError("NoAudioReceived")
+    for index, (voice, delay) in enumerate(plan):
+        if delay > 0:
+            await asyncio.sleep(delay)
+        buf = bytearray()
+        try:
+            async for chunk in edge_tts.Communicate(text, voice).stream():
+                if chunk["type"] == "audio":
+                    buf += chunk["data"]
+        except Exception as error:
+            last_error = error
+            log.warning(
+                "tts_retry attempt=%d/%d voice=%s error=%s",
+                index + 1, len(plan), voice, safe_error_detail(error),
+            )
+            continue
+        if buf:
+            if index:
+                log.info("tts_retry_recovered attempt=%d voice=%s bytes=%d", index + 1, voice, len(buf))
+            return bytes(buf)
+        log.warning("tts_retry attempt=%d/%d voice=%s error=NoAudioReceived", index + 1, len(plan), voice)
+    raise last_error
 
 
 def rate_limit_http_error(error: RateLimitedError, text_id: str) -> HTTPException:
