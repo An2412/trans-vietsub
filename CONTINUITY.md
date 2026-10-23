@@ -44,7 +44,14 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   (`cutCurrentAudio`) và đọc ngay câu sau, audio vào giữa câu (tua/reload) → nhảy
   audio tới đúng vị trí bằng `midCueResumeFraction` thay vì đọc lại từ đầu.
   Dò phụ đề YouTube phải bật CC thật nudge; nếu CC vốn tắt thì `restoreCcButton`
-  tắt lại sau khi lấy xong script (phụ đề không “tự mở”).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
+  tắt lại sau khi lấy xong script (phụ đề không “tự mở”).
+- **Nút lưu tóm tắt là thủ công 100%** (yêu cầu của user): nhãn widget đổi thành
+  “💾 Lưu tóm tắt để học”; không hề có auto-save (chỉ bấm mới tóm tắt/lưu).
+  buildCues tách câu ở khoảng lặng ≥ 0.45s (trước 0.65s, min độ dài 14) để khoảng
+  nghỉ giữa câu lồng tiếng bám nhịp giọng đọc gốc.
+- Edge TTS rớt thoáng NoAudioReceived (tái hiện trên máy: cùng câu/giọng lần 1-2
+  FAIL lần 3 OK): `synth()` tự retry theo plan HoaiMy → HoaiMy (0.7s) → fallback
+  NamMinh (1.4s); stream 0 byte cũng tính là fail (`test_tts_retry.py`, 4 case).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
   chặn request có `Origin: https://<site>`; fetch của content script dùng origin của trang.
 - `install.bat` fallback sang `python` nếu không có launcher `py`.
 

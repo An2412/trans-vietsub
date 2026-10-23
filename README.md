@@ -72,7 +72,7 @@ Extension đã khai báo sẵn `udemy.com` trong `content_scripts` và `host_per
 1. Mở bài học trên Udemy, bật **CC/Subtitles** trong player và đợi phụ đề tiếng Anh hiện lên.
 2. Bấm **Tải script** trong widget Viet Dub. Extension đọc `textTracks` của thẻ `<video>`; nếu trình duyệt chưa nạp cue thì extension ép track về chế độ `hidden` rồi thử lại, sau đó mới tải file VTT qua service worker.
 3. Bấm **Phát & lồng tiếng** để nghe bản dịch lồng theo video.
-4. Bấm **📋 Tóm tắt bài học** để tạo ghi chú (xem phần kế tiếp).
+4. Bấm **💾 Lưu tóm tắt để học** để tạo ghi chú (xem phần kế tiếp). Tóm tắt chỉ được tạo khi bấm nút — không tự lưu khi xem video thường.
 
 Khi bạn chuyển sang bài khác trên Udemy (SPA đổi URL), extension tự phát hiện và reset trạng thái để bạn tải script lại.
 
@@ -85,6 +85,7 @@ Từ bản này, lồng tiếng **không tự dừng video** nữa:
 - Câu lỗi sau đủ lần thử → bị **bỏ qua** và video tiếp tục; nhãn `Thử lại lỗi` cho phép dịch lại các câu đã bỏ qua.
 - Tua/reload vào giữa câu → giọng đọc **tiếp nối** từ đúng vị trí giữa câu (không đọc lại từ đầu).
 - Dò phụ đề YouTube cần bật CC thật; nếu CC của bạn vốn tắt, extension tự tắt lại sau khi đã lấy script (phụ đề không "tự mở" trên màn hình).
+- **Ngắt câu sát giọng gốc**: phụ đề tiếng Anh được tách thành câu riêng mỗi khi giọng gốc nghỉ ≥ 0.45s (trước là 0.65s), nên khoảng lặng thật giữa hai câu lồng tiếng gần với nhịp video hơn; mỗi câu được phát đúng thời điểm của câu đó (không dồn liền).
 
 Với website khác không có trong `matches`, hãy thêm domain vào `content_scripts` và `host_permissions` trong `extension/manifest.json` rồi bấm **Reload** tại `chrome://extensions`.
 
@@ -97,7 +98,7 @@ Notion. Khi chưa có, popup hiện ghi chú 🔒 và nút Tóm tắt trong widg
 cũng trả `403` nếu gọi `/summarize` trực tiếp, nên không thể dùng vòng qua giao diện.
 
 1. Trong popup chọn **Nơi lưu bản tóm tắt**: `Google Docs`, `Notion (trang con)` hoặc `Chỉ hiện trong widget`.
-2. Bấm **Tải script** rồi **📋 Tóm tắt bài học** trên widget của video. Extension sẽ dịch phần phụ đề chưa có bản Tiếng Việt, nhờ AI rút gọn theo 5 mục (Mục tiêu / Nội dung chính / Khái niệm quan trọng / Kỹ năng–Công cụ / Tóm tắt một câu), rồi lưu ra đích đã chọn.
+2. Bấm **Tải script** rồi **💾 Lưu tóm tắt để học** trên widget của video. Extension sẽ dịch phần phụ đề chưa có bản Tiếng Việt, nhờ AI rút gọn theo 5 mục (Mục tiêu / Nội dung chính / Khái niệm quan trọng / Kỹ năng–Công cụ / Tóm tắt một câu), rồi lưu ra đích đã chọn.
 3. Bản tóm tắt luôn hiện trong widget (mục *Xem bản tóm tắt*) kèm link mở tài liệu.
 4. Tùy chọn **Notion: ghi tiếp vào page đã tạo** chỉ áp dụng cho Notion; Google Docs luôn ghi theo thẻ trong một sổ tay (xem mục kế tiếp).
 

@@ -610,8 +610,10 @@ function buildCues(events) {
     if (!cur) {
       cur = { start: word.t, end: word.t + word.d, en: word.text };
     } else {
-      // Nếu giữa 2 từ có khoảng lặng tự nhiên >= 0.65s và câu đã đủ dài, tách thành câu mới
-      if (pauseGap >= 0.65 && cur.en.length >= 20) {
+      // Nếu giữa 2 từ có khoảng lặng tự nhiên >= 0.45s và câu đã đủ dài, tách
+      // thành câu mới: khoảng nghỉ của giọng đọc gốc giữ nguyên thành khoảng
+      // nghỉ thật giữa hai câu lồng tiếng (sát nhịp giọng đọc hơn).
+      if (pauseGap >= 0.45 && cur.en.length >= 14) {
         out.push(cur);
         cur = { start: word.t, end: word.t + word.d, en: word.text };
       } else {
@@ -978,7 +980,7 @@ async function applySummarizeGate() {
   const unlocked = await summarizeUnlocked();
   ui.summarize.hidden = false;
   ui.summarize.disabled = !unlocked;
-  ui.summarize.textContent = unlocked ? "📋 Tóm tắt bài học" : "🔒 Tóm tắt: đăng nhập Google";
+  ui.summarize.textContent = unlocked ? "💾 Lưu tóm tắt để học" : "🔒 Lưu tóm tắt: đăng nhập Google";
   ui.summarize.title = unlocked
     ? ""
     : "Mở popup Viet Dub và bấm “Tiếp tục với Google” để dùng tóm tắt bài học.";
@@ -1042,7 +1044,7 @@ async function summarizeAndExport() {
   } finally {
     if (ui?.summarize) {
       ui.summarize.disabled = false;
-      ui.summarize.textContent = "📋 Tóm tắt bài học";
+      ui.summarize.textContent = "💾 Lưu tóm tắt để học";
     }
   }
 }
