@@ -30,6 +30,13 @@ def is_rate_limited(error: Exception) -> bool:
     ))
 
 
+def is_auth_error(error: Exception) -> bool:
+    """Key API bị từ chối (hết hạn/thu hồi) — lỗi lặp lại mọi câu, phải cooldown dài."""
+    response = getattr(error, "response", None)
+    status = getattr(error, "status_code", None) or getattr(response, "status_code", None)
+    return status in (401, 403)
+
+
 class RateLimitedError(RuntimeError):
     def __init__(self, retry_after: int, providers: list[str] | None = None) -> None:
         self.retry_after = max(1, int(retry_after))
@@ -182,6 +189,7 @@ class FallbackTranslator:
     RATE_BACKOFF_BASE_S = 2.0
     RATE_BACKOFF_CAP_S = 8.0
     RATE_COOLDOWN_S = 60
+    AUTH_COOLDOWN_S = 300
 
     def __init__(self, providers: list[tuple[str, Translator]]) -> None:
         self._providers = providers
@@ -247,7 +255,14 @@ class FallbackTranslator:
                                 text_id, self.RATE_COOLDOWN_S, name, _safe_provider_error(error),
                             )
                         else:
-                            log.warning("provider_failed text_id=%s provider=%s error=%s", text_id, name, _safe_provider_error(error))
+                            if is_auth_error(error):
+                                self._cooldowns[name] = time.monotonic() + self.AUTH_COOLDOWN_S
+                                log.warning(
+                                    "provider_auth_failed text_id=%s provider=%s error=%s cooldown_seconds=%d",
+                                    text_id, name, _safe_provider_error(error), self.AUTH_COOLDOWN_S,
+                                )
+                            else:
+                                log.warning("provider_failed text_id=%s provider=%s error=%s", text_id, name, _safe_provider_error(error))
                         break
 
             if limited_until:
@@ -310,7 +325,14 @@ class FallbackTranslator:
                             self.RATE_COOLDOWN_S, name, _safe_provider_error(error),
                         )
                     else:
-                        log.warning("generate_provider_failed provider=%s error=%s", name, _safe_provider_error(error))
+                        if is_auth_error(error):
+                            self._cooldowns[name] = time.monotonic() + self.AUTH_COOLDOWN_S
+                            log.warning(
+                                "generate_provider_auth_failed provider=%s error=%s cooldown_seconds=%d",
+                                name, _safe_provider_error(error), self.AUTH_COOLDOWN_S,
+                            )
+                        else:
+                            log.warning("generate_provider_failed provider=%s error=%s", name, _safe_provider_error(error))
                     break
 
         raise last_err or RuntimeError("no generation provider")
@@ -366,7 +388,13 @@ def _fallback_translate_batch(self: "FallbackTranslator", texts: list[str], targ
                         log.warning("batch_provider_cooldown provider=%s seconds=%d error=%s",
                                     name, cooldown, _safe_provider_error(error))
                     else:
-                        log.warning("batch_provider_failed provider=%s error=%s", name, _safe_provider_error(error))
+                        if is_auth_error(error):
+                            cooldown = self.AUTH_COOLDOWN_S
+                            self._cooldowns[name] = time.monotonic() + cooldown
+                            log.warning("batch_provider_auth_failed provider=%s error=%s cooldown_seconds=%d",
+                                        name, _safe_provider_error(error), cooldown)
+                        else:
+                            log.warning("batch_provider_failed provider=%s error=%s", name, _safe_provider_error(error))
                     break
     # Fallback từng câu (translate() tự khóa/cooldown). Chỉ chạy nếu còn provider khác.
     try:
@@ -381,12 +409,17 @@ def _fallback_translate_batch(self: "FallbackTranslator", texts: list[str], targ
 FallbackTranslator.translate_batch = _fallback_translate_batch
 
 
-def build_translator() -> Translator:
-    # Premium/API providers are selected explicitly in the extension popup and
-    # receive their key from the OS credential store. No .env key is loaded here.
-    providers: list[tuple[str, Translator]] = [
+def free_providers() -> list[tuple[str, Translator]]:
+    """Chuỗi dịch miễn phí, dùng làm lưới an toàn khi provider API lỗi."""
+    return [
         ("mymemory", MyMemoryTranslator()),
         ("google", GoogleWebTranslator()),
     ]
+
+
+def build_translator() -> Translator:
+    # Premium/API providers are selected explicitly in the extension popup and
+    # receive their key from the OS credential store. No .env key is loaded here.
+    providers = free_providers()
     log.warning("translation_providers=%s", ",".join(name for name, _ in providers))
     return FallbackTranslator(providers)

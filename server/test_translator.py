@@ -24,6 +24,21 @@ class Works:
         return "translated"
 
 
+class AuthFail:
+    """Provider trả 401 (key hết hạn/thu hồi)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def translate(self, _text, _target="vi"):
+        self.calls += 1
+        raise ProviderHTTPError(401, "ollama http_status=401")
+
+    def translate_batch(self, texts, _target="vi"):
+        self.calls += 1
+        raise ProviderHTTPError(401, "ollama http_status=401")
+
+
 class TranslatorRetryTests(unittest.TestCase):
     @patch("translator.time.sleep")
     @patch("translator.random.uniform", return_value=0)
@@ -35,6 +50,23 @@ class TranslatorRetryTests(unittest.TestCase):
         delays = [call.args[0] for call in sleep.call_args_list]
         self.assertIn(2.0, delays)
         self.assertIn(4.0, delays)
+
+    def test_auth_error_is_not_retried_and_next_provider_serves(self):
+        dead = AuthFail()
+        translator = FallbackTranslator([("ollama", dead), ("free", Works())])
+        self.assertEqual(translator.translate("hello"), "translated")
+        self.assertEqual(dead.calls, 1)
+        # Câu tiếp theo: provider chết đang cooldown nên không bị gọi lại.
+        self.assertEqual(translator.translate("another line"), "translated")
+        self.assertEqual(dead.calls, 1)
+
+    def test_batch_auth_error_falls_back_to_free_provider(self):
+        dead = AuthFail()
+        translator = FallbackTranslator([("ollama", dead), ("free", Works())])
+        self.assertEqual(translator.translate_batch(["a", "b"]), ["translated", "translated"])
+        self.assertEqual(dead.calls, 1)
+        self.assertEqual(translator.translate_batch(["c"]), ["translated"])
+        self.assertEqual(dead.calls, 1)
 
     @patch("translator.time.sleep")
     @patch("translator.random.uniform", return_value=0)

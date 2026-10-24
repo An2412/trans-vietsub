@@ -49,6 +49,15 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   “💾 Lưu tóm tắt để học”; không hề có auto-save (chỉ bấm mới tóm tắt/lưu).
   buildCues tách câu ở khoảng lặng ≥ 0.45s (trước 0.65s, min độ dài 14) để khoảng
   nghỉ giữa câu lồng tiếng bám nhịp giọng đọc gốc.
+- **Lỗi 401 của provider API không còn giết cả phiên lồng tiếng** (sự cố 24/10/2026:
+  Ollama trả 401 hàng loạt đúng lúc user đang tạo lại key → mọi câu fail 3 lần rồi bị
+  bỏ): chuỗi provider giờ = [provider đang cấu hình] + `free_providers()`
+  (mymemory, google) ở `_make_active_translator()` và nhánh lưu `/provider-config`;
+  401/403 được `is_auth_error()` nhận diện và cho provider cooldown 300s
+  (`AUTH_COOLDOWN_S`, log `provider_auth_failed`/`batch_provider_auth_failed`) để không
+  gọi lại key chết cho từng câu; dịch tiếp bằng máy miễn phí (chất lượng thấp hơn) và
+  lưu key mới trong popup sẽ dựng lại translator ngay (cooldown reset). Test:
+  `test_translator.py` (+2 case auth → fallback không retry, batch cũng fallback).
 - **Icon extension “ghost đeo headphone”** (yêu cầu của user 10/2026, thay thiết kế
   tam giác play và cả bản vẽ tay lại — bị chê “siêu xấu”): script `tools/make_icons.py`
   **chỉ xử lý ảnh gốc user gửi** (lưu tại `tools/assets/ghost.jpg`, 608px, nền đen),
@@ -62,7 +71,8 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   `setWidgetCollapsed(true)`, reset trên pointerenter/down/leave (leave re-arm).
 - Edge TTS rớt thoáng NoAudioReceived (tái hiện trên máy: cùng câu/giọng lần 1-2
   FAIL lần 3 OK): `synth()` tự retry theo plan HoaiMy → HoaiMy (0.7s) → fallback
-  NamMinh (1.4s); stream 0 byte cũng tính là fail (`test_tts_retry.py`, 4 case).- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
+  NamMinh (1.4s); stream 0 byte cũng tính là fail (`test_tts_retry.py`, 4 case).
+- Content script gọi server qua `background.js` (service worker) vì `local_only_guard`
   chặn request có `Origin: https://<site>`; fetch của content script dùng origin của trang.
 - `install.bat` fallback sang `python` nếu không có launcher `py`.
 

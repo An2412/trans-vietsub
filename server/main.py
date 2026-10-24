@@ -24,6 +24,7 @@ from translator import (
     ProviderHTTPError,
     RateLimitedError,
     build_translator,
+    free_providers,
 )
 from tts_cache import TTSCache
 
@@ -107,7 +108,12 @@ def _make_active_translator():
     if not active:
         return build_translator()
     provider, model, api_key = active
-    return FallbackTranslator([(provider, create_provider(provider, api_key, model))])
+    # Provider trả phí đứng đầu; nếu key hết hạn/bị thu hồi (401/403) hoặc dịch vụ
+    # lỗi, chuỗi tự rơi về provider miễn phí để lồng tiếng vẫn chạy.
+    return FallbackTranslator([
+        (provider, create_provider(provider, api_key, model)),
+        *free_providers(),
+    ])
 
 
 try:
@@ -341,7 +347,10 @@ def save_provider_config(req: ProviderConfigReq):
         active = provider_settings.active_config()
         if not active:
             raise ProviderConfigurationError("Cấu hình provider chưa được lưu.")
-        translator = FallbackTranslator([(active[0], create_provider(*active))])
+        translator = FallbackTranslator([
+            (active[0], create_provider(*active)),
+            *free_providers(),
+        ])
     except SecureStoreUnavailable as error:
         log.warning("provider_config_save_failed provider=%s reason=secure_store_unavailable", req.provider)
         raise HTTPException(status_code=503, detail=str(error)) from None
