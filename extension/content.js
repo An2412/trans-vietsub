@@ -9,6 +9,9 @@ const MAX_LATE_S = 6;
 const CAPTION_WAIT_MS = 15000;
 const BATCH_SIZE = 8; // số câu gom vào một request dịch
 const MAX_RETRIES = 2; // thử lại thêm 2 lần sau request đầu tiên
+const MAX_AUTO_RETRIES = 4; // số lần tự thử lại câu lỗi trước khi cần bấm tay
+const SKIPFAIL_BACKOFF_MIN_MS = 5000; // lần tự thử lại đầu tiên sau 5s
+const SKIPFAIL_BACKOFF_MAX_MS = 60000; // giãn cách tối đa giữa các lần tự thử lại
 const AUDIO_GRACE_PERIOD_S = 0.4; // Vùng đệm 0.4s để tải kịp audio trước khi buộc dừng video
 const MAX_SPEED_FACTOR = 1.35; // Giới hạn tăng tốc tối đa để câu đọc vừa vặn vào khung phụ đề
 const MIN_SPEED_FACTOR = 0.95; // Giới hạn giảm tốc tối thiểu
@@ -36,6 +39,8 @@ let widgetCollapsed = false;
 let adActive = false;
 let rateLimitUntil = 0;
 let batchRetryAt = 0;
+let skipfailRetryAt = 0; // thời điểm tự thử lại các câu bị bỏ qua
+let skipfailBackoffMs = 0; // giãn cách hiện tại (tăng dần khi lỗi kéo dài)
 let voiceId = "vi-VN-HoaiMyNeural";
 let voicePresets = [];
 let voiceOptionsLoaded = false;
@@ -943,7 +948,10 @@ async function onLoadButton() {
     await retryFailedCues();
     return;
   }
-  if (scriptLoaded && loadedFor === videoId()) return;
+  if (scriptLoaded && loadedFor === videoId()) {
+    syncLoadButton();
+    return;
+  }
 
   loadingScript = true;
   const myGeneration = ++generation;
@@ -1171,20 +1179,53 @@ async function waitForRetry(ms, attempt, cue, myGeneration, rateLimited = false)
 
 function refreshWorkingStatus() {
   if (fatalError || !enabled || !scriptLoaded) return;
+  syncLoadButton();
   const ready = cues.filter((cue) => cue.audio).length;
   setStatus(`Đang lồng tiếng cuốn chiếu · ${ready}/${cues.length} câu đã sẵn sàng.`, "working");
 }
 
+function syncLoadButton() {
+  if (!ui || !scriptLoaded || loadingScript) return;
+  const hasFailures = cues.some((cue) => cue.state === "skipfail");
+  if (hasFailures) {
+    ui.load.disabled = false;
+    ui.load.textContent = "Thử lại lỗi";
+  } else {
+    ui.load.disabled = true;
+    ui.load.textContent = "Đã tải script";
+  }
+}
+
 function skipFailedCue(cue, error) {
-  // Chính sách "video không tự dừng vì lồng tiếng": bỏ qua câu lỗi, video chạy
-  // tiếp. Người dùng vẫn có thể bấm “Thử lại lỗi” để dịch lại các câu đã bỏ qua.
+  // Chính sách "video không tự dừng vì lồng tiếng": bỏ qua tạm câu lỗi, video
+  // chạy tiếp. Câu lỗi được TỰ ĐỘNG thử lại sau vài giây (backoff tăng dần) để
+  // một đợt rớt Edge TTS ngắn không làm mất tiếng cả đoạn; người dùng vẫn bấm
+  // được “Thử lại lỗi” để thử ngay.
   cue.state = "skipfail";
-  setStatus(`Bỏ qua câu lỗi (${error}); video vẫn chạy. Bấm “Thử lại lỗi” để dịch lại các câu bị bỏ qua.`, "error");
+  cue.failedAt = Date.now();
+  scheduleSkipfailRetry();
+  const waitS = Math.max(1, Math.round(skipfailBackoffMs / 1000));
+  setStatus(`Bỏ qua tạm câu lỗi (${error}); tự thử lại sau ${waitS}s. Video vẫn chạy.`, "error");
   if (ui) {
     ui.load.disabled = false;
     ui.load.textContent = "Thử lại lỗi";
   }
   console.warn(TAG, "Bỏ qua câu không tạo được giọng:", cue.en, error);
+}
+
+// Giãn cách tự thử lại: 5s → 10s → 20s → 40s → 60s (giữ nguyên khi vẫn lỗi).
+function scheduleSkipfailRetry() {
+  if (skipfailRetryAt) return;
+  skipfailBackoffMs = skipfailBackoffMs
+    ? Math.min(SKIPFAIL_BACKOFF_MAX_MS, skipfailBackoffMs * 2)
+    : SKIPFAIL_BACKOFF_MIN_MS;
+  skipfailRetryAt = Date.now() + skipfailBackoffMs;
+}
+
+// Dịch vụ đã hoạt động lại: xoá backoff để lần lỗi sau được thử lại sớm.
+function clearSkipfailBackoff() {
+  skipfailRetryAt = 0;
+  skipfailBackoffMs = 0;
 }
 
 function handleCueFailure(cue, error) {
@@ -1210,6 +1251,7 @@ async function processCue(cue, myGeneration = generation) {
     if (cached) {
       cue.audio = cached.audio;
       cue.vi = cached.vi;
+      cue.audioVoice = cachedVoice;
       cue.state = "ready";
       preloadCueAudio(cue);
       if (!fatalError) refreshWorkingStatus();
@@ -1254,6 +1296,9 @@ async function processCue(cue, myGeneration = generation) {
         if (!result.audio) throw new Error("no_audio_received");
         cue.audio = result.audio;
         cue.vi = result.text || "";
+        cue.audioVoice = attemptVoice;
+        cue.retryCount = 0;
+        clearSkipfailBackoff();
         rememberCueAudio(cue.en, cue.audio, cue.vi, true, attemptVoice);
         cue.state = "ready";
         preloadCueAudio(cue);
@@ -1268,6 +1313,11 @@ async function processCue(cue, myGeneration = generation) {
           rateLimitUntil = Math.max(rateLimitUntil, Date.now() + waitMs);
         }
         console.warn(TAG, `Câu lỗi, lần thử ${attempt + 1}/${MAX_RETRIES + 1}:`, lastError);
+        // Server đã tự thử 3 lần (kèm đổi giọng dự phòng) trước khi trả 502 TTS.
+        // Thử lại ở client chỉ nhân số lần gọi Edge TTS lên 9 và giữ câu kẹt rất
+        // lâu; bỏ cuộc sớm để nhường slot cho câu khác, câu này sẽ được tự thử
+        // lại theo backoff của skipfail.
+        if (error?.status === 502 && /^tts_/.test(lastError)) break;
       }
     }
     if (myGeneration === generation) {
@@ -1295,6 +1345,29 @@ function healStuckCue(cue, nowMs = Date.now()) {
   return true;
 }
 
+// Tự thử lại các câu đã bị bỏ qua (Edge TTS rớt tạm thời). Chỉ thử những câu
+// còn trong vùng sắp phát; giãn cách tăng dần để không dội request liên tục.
+// Trả về số câu vừa được đưa lại vào hàng đợi.
+function retrySkippedCues(now, ahead, nowMs = Date.now()) {
+  if (!skipfailRetryAt || nowMs < skipfailRetryAt) return 0;
+  const retryable = cues.filter((cue) => cue.state === "skipfail"
+    && (cue.retryCount || 0) < MAX_AUTO_RETRIES
+    && cue.end + MAX_LATE_S >= now
+    && cue.start <= now + ahead);
+  for (const cue of retryable) {
+    cue.retryCount = (cue.retryCount || 0) + 1;
+    cue.state = "new";
+    cue.batched = false;
+    cue.batchPromise = null;
+    cue.loadingSince = 0;
+  }
+  skipfailRetryAt = 0;
+  if (retryable.length) {
+    console.log(TAG, `Tự thử lại ${retryable.length} câu lỗi (lần ${retryable[0].retryCount}/${MAX_AUTO_RETRIES}).`);
+  }
+  return retryable.length;
+}
+
 function prefetchTick(force = false) {
   if (syncAdState()) return;
   if (!enabled || !scriptLoaded || fatalError) return;
@@ -1302,8 +1375,10 @@ function prefetchTick(force = false) {
   if (!video || (video.paused && !autoPaused && !force)) return;
   const now = video.currentTime;
   const ahead = prefetchWindow(video);
-  startBatchTranslate(now, ahead);
   const nowMs = Date.now();
+
+  retrySkippedCues(now, ahead, nowMs);
+  startBatchTranslate(now, ahead);
   const softCap = MAX_PARALLEL + NEAR_EXTRA_SLOTS;
   for (const cue of cues) {
     if (cue.end + MAX_LATE_S < now) continue;
@@ -1332,7 +1407,11 @@ async function retryFailedCues() {
   fatalError = false;
   loadingScript = true;
   const myGeneration = generation;
-  for (const cue of failed) cue.state = "new";
+  for (const cue of failed) {
+    cue.state = "new";
+    cue.retryCount = 0;
+  }
+  clearSkipfailBackoff();
   if (ui) {
     ui.load.disabled = true;
     ui.load.textContent = "Đang thử lại…";
@@ -1491,20 +1570,31 @@ function setVoice(value) {
 }
 
 // Đổi giọng: bỏ audio đã tạo bằng giọng cũ (cache key có voice nên không lẫn)
-// và trả các câu chưa phát về hàng đợi để tải lại bằng giọng mới.
+// và trả các câu CHƯA phát về hàng đợi để tải lại bằng giọng mới.
+// KHÔNG cắt câu đang đọc: cắt ngay lúc đổi giọng từng làm YouTube im tiếng cho
+// tới khi tải xong giọng mới. Câu hiện tại đọc nốt bằng giọng cũ, giọng mới áp
+// dụng từ câu kế tiếp.
 function invalidateCueAudio() {
-  if (currentAudio) cutCurrentAudio();
+  const video = getVideo();
+  const now = video ? video.currentTime : 0;
   for (const cue of cues) {
     if (isConsumedState(cue.state)) continue;
+    if (cue.end + MAX_LATE_S < now) continue;
+    // Đổi đi rồi đổi lại (HoaiMy → NamMinh → HoaiMy): giữ audio đã đúng giọng.
+    if (cue.audioVoice === voiceId) continue;
     cleanupCueAudio(cue);
     cue.audio = null;
-    cue.vi = "";
+    cue.audioVoice = "";
+    // Giữ cue.vi: bản dịch không phụ thuộc giọng đọc, không cần dịch lại.
     cue.state = "new";
     cue.batched = false;
     cue.batchPromise = null;
     cue.loadingSince = 0;
   }
-  if (enabled && scriptLoaded && !fatalError) prefetchTick(true);
+  if (enabled && scriptLoaded && !fatalError) {
+    prefetchTick(true);
+    playTick();
+  }
 }
 
 // ---------- Phát đúng thời điểm ----------
@@ -1791,6 +1881,7 @@ function resetForNavigation() {
   autoPaused = false;
   fatalError = false;
   adActive = false;
+  clearSkipfailBackoff();
   for (const cue of cues) {
     cleanupCueAudio(cue);
   }

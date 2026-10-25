@@ -320,6 +320,120 @@ function testSeekRecovery() {
   check(corruptState === "skipped", "câu có audio hỏng được đánh dấu skipped",
     corruptState);
 
+  finish(testVoiceSwitch);
+}
+
+function testVoiceSwitch() {
+  console.log("[đổi giọng - không cắt câu đang đọc]");
+  const html = `<!doctype html><html><body>
+      <div id="movie_player"><video class="html5-main-video"></video></div>
+    </body></html>`;
+  const hook = `
+    globalThis.__vd = {
+      prime() {
+        scriptLoaded = true;
+        enabled = true;
+        autoPaused = false;
+        const v = getVideo();
+        let t = 10;
+        Object.defineProperty(v, "currentTime", {
+          get: () => t, set: (x) => { t = x; }, configurable: true
+        });
+        cues = [
+          { start: 8, end: 12, en: "dang doc", vi: "đang đọc", state: "played", audio: "AAAA", audioVoice: "vi-VN-HoaiMyNeural", duration: 4 },
+          { start: 13, end: 16, en: "sap toi", vi: "sắp tới", state: "ready", audio: "BBBB", audioVoice: "vi-VN-HoaiMyNeural", duration: 3 },
+          { start: 1, end: 5, en: "da qua", vi: "đã qua", state: "played", audio: "CCCC", audioVoice: "vi-VN-HoaiMyNeural", duration: 4 },
+          { start: 17, end: 19, en: "da co giong moi", vi: "đã có giọng mới", state: "ready", audio: "DDDD", audioVoice: "vi-VN-NamMinhNeural", duration: 2 }
+        ];
+        globalThis.__fakeAudio = { paused: false, pause() { this.paused = true; } };
+        currentAudio = globalThis.__fakeAudio;
+        currentCue = cues[0];
+      },
+      changeVoice() {
+        fatalError = true; // chặn prefetch/playTick trong test
+        setVoice("vi-VN-NamMinhNeural");
+        fatalError = false;
+      },
+      cues: () => cues,
+      currentAudio: () => currentAudio,
+      voice: () => voiceId
+    };
+  `;
+  const window = setupDom(html, "https://www.youtube.com/watch?v=abc123", hook);
+  window.__vd.prime();
+  window.__vd.changeVoice();
+  const cues = window.__vd.cues();
+
+  check(window.__vd.voice() === "vi-VN-NamMinhNeural", "giọng đọc đã đổi",
+    window.__vd.voice());
+  check(window.__vd.currentAudio() === window.__fakeAudio && window.__fakeAudio.paused === false,
+    "câu đang đọc KHÔNG bị cắt khi đổi giọng", String(window.__fakeAudio.paused));
+  check(cues[0].state === "played" && cues[0].audio === "AAAA",
+    "câu đang đọc giữ nguyên audio giọng cũ", cues[0].state);
+  check(cues[1].state === "new" && cues[1].audio === null,
+    "câu chưa phát được đưa về hàng đợi tải giọng mới", cues[1].state);
+  check(cues[1].vi === "sắp tới",
+    "bản dịch được giữ lại (không phụ thuộc giọng đọc)", cues[1].vi);
+  check(cues[2].state === "played" && cues[2].audio === "CCCC",
+    "câu đã phát trước đó không bị đụng", cues[2].state);
+  check(cues[3].state === "ready" && cues[3].audio === "DDDD",
+    "câu đã có audio đúng giọng mới được giữ nguyên", cues[3].state);
+
+  finish(testSkipfailRetry);
+}
+
+function testSkipfailRetry() {
+  console.log("[tự thử lại câu lỗi]");
+  const html = `<!doctype html><html><body>
+      <div id="movie_player"><video class="html5-main-video"></video></div>
+    </body></html>`;
+  const hook = `
+    globalThis.__vd = {
+      prime() {
+        cues = [
+          { start: 10, end: 12, en: "loi sap toi", vi: "", state: "skipfail" },
+          { start: 20, end: 22, en: "loi xa", vi: "", state: "skipfail" },
+          { start: 0, end: 2, en: "loi da qua", vi: "", state: "skipfail" },
+          { start: 21, end: 23, en: "het luot", vi: "", state: "skipfail", retryCount: MAX_AUTO_RETRIES }
+        ];
+        skipfailBackoffMs = 0;
+        skipfailRetryAt = 0;
+      },
+      fail() {
+        cues[0].state = "skipfail";
+        scheduleSkipfailRetry();
+      },
+      run(now, ahead, nowMs) { return retrySkippedCues(now, ahead, nowMs); },
+      retryAt: () => skipfailRetryAt,
+      backoff: () => skipfailBackoffMs,
+      cues: () => cues
+    };
+  `;
+  const window = setupDom(html, "https://www.youtube.com/watch?v=abc123", hook);
+  window.__vd.prime();
+  window.__vd.fail();
+
+  check(window.__vd.backoff() === 5000, "lỗi lần đầu: hẹn tự thử lại sau 5s",
+    String(window.__vd.backoff()));
+  check(window.__vd.run(10, 60, Date.now()) === 0,
+    "chưa tới giờ hẹn thì chưa thử lại");
+  check(window.__vd.run(10, 60, Date.now() + 60000) === 2,
+    "tới giờ: chỉ thử các câu lỗi còn trong vùng phát");
+
+  const cues = window.__vd.cues();
+  check(cues[0].state === "new" && cues[0].retryCount === 1,
+    "câu lỗi sắp phát được đưa lại hàng đợi", cues[0].state);
+  check(cues[1].state === "new" && cues[1].retryCount === 1,
+    "câu lỗi phía sau cũng được thử lại", cues[1].state);
+  check(cues[2].state === "skipfail", "câu đã trôi qua quá lâu không thử lại",
+    cues[2].state);
+  check(cues[3].state === "skipfail", "câu hết lượt tự thử vẫn giữ skipfail",
+    cues[3].state);
+
+  window.__vd.fail();
+  check(window.__vd.backoff() === 10000, "lỗi lại: giãn cách tăng lên 10s",
+    String(window.__vd.backoff()));
+
   finish(testVoicePicker);
 }
 

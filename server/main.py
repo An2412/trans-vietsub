@@ -3,6 +3,7 @@ import base64
 import hashlib
 import logging
 import re
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,24 @@ _VOICE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]{2,40}Neural$")
 # synth() thử lại theo plan dưới đây; tiếng cuối đổi sang giọng dự phòng.
 _TTS_FALLBACK_VOICE = "vi-VN-NamMinhNeural"
 _TTS_RETRY_DELAYS_S = (0.0, 0.7, 1.4)
+# Edge TTS trả NoAudioReceived nhiều hơn hẳn khi có nhiều kết nối song song (mỗi
+# câu /speak là một phiên websocket). Giới hạn 4 phiên đồng thời: các request còn
+# lại xếp hàng thay vì cùng lúc chọc vào service rồi cùng thất bại. Đo thực tế
+# trên máy: 12 câu liên tiếp, 4 phiên → 12/12 OK trong ~6s, không lần nào phải
+# thử lại (trước đó 5 phiên không giới hạn + client retry sinh NoAudioReceived).
+_TTS_CONCURRENCY = 4
+_TTS_ATTEMPT_TIMEOUT_S = 20.0
+_tts_gates: "weakref.WeakKeyDictionary[Any, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
+
+
+def _tts_gate() -> asyncio.Semaphore:
+    """Semaphore theo event loop (uvicorn chỉ có 1 loop; test tạo loop mỗi case)."""
+    loop = asyncio.get_running_loop()
+    gate = _tts_gates.get(loop)
+    if gate is None:
+        gate = asyncio.Semaphore(_TTS_CONCURRENCY)
+        _tts_gates[loop] = gate
+    return gate
 MAX_BATCH = 16
 CACHE_DB = Path(__file__).resolve().parent / "data" / "vietdub.sqlite3"
 
@@ -245,6 +264,15 @@ def translate_with_cache(text: str, target: str = "vi") -> tuple[str, str]:
         return result, "uncached"
 
 
+async def _tts_stream_bytes(text: str, voice: str) -> bytes:
+    """Một phiên Edge TTS: gom toàn bộ chunk audio thành bytes."""
+    buf = bytearray()
+    async for chunk in edge_tts.Communicate(text, voice).stream():
+        if chunk["type"] == "audio":
+            buf += chunk["data"]
+    return bytes(buf)
+
+
 async def synth(text: str, voice: str | None = None) -> bytes:
     """Tạo giọng Edge TTS, tự thử lại khi service rớt thoáng (NoAudioReceived).
 
@@ -265,11 +293,13 @@ async def synth(text: str, voice: str | None = None) -> bytes:
     for index, (voice, delay) in enumerate(plan):
         if delay > 0:
             await asyncio.sleep(delay)
-        buf = bytearray()
         try:
-            async for chunk in edge_tts.Communicate(text, voice).stream():
-                if chunk["type"] == "audio":
-                    buf += chunk["data"]
+            # Giới hạn số phiên song song + timeout để một phiên treo không giữ
+            # slot và không bắt client chờ tới 90s.
+            async with _tts_gate():
+                buf = await asyncio.wait_for(
+                    _tts_stream_bytes(text, voice), timeout=_TTS_ATTEMPT_TIMEOUT_S
+                )
         except Exception as error:
             last_error = error
             log.warning(
@@ -280,7 +310,7 @@ async def synth(text: str, voice: str | None = None) -> bytes:
         if buf:
             if index:
                 log.info("tts_retry_recovered attempt=%d voice=%s bytes=%d", index + 1, voice, len(buf))
-            return bytes(buf)
+            return buf
         log.warning("tts_retry attempt=%d/%d voice=%s error=NoAudioReceived", index + 1, len(plan), voice)
     raise last_error
 

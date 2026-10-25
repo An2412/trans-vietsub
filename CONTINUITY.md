@@ -75,10 +75,34 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   sai/rỗng → giọng mặc định), cache audio key theo `(voice, text)` nên đổi giọng
   không phát lại audio cũ; khi TTS lỗi vẫn thử 2 lần giọng đã chọn rồi mới rơi về
   giọng Việt dự phòng. Widget có `<select id="voice">` + ô nhập Voice ID tùy ý,
-  lưu ở `chrome.storage.local.voice`; đổi giọng giữa chừng sẽ cắt audio hiện tại,
-  xoá audio đã tạo của các câu chưa phát và tải lại bằng giọng mới (cache trình
-  duyệt cũng key theo voice). Danh sách lấy từ server, nếu server tắt thì fallback
-  2 giọng Việt. Test: `test_tts_retry.py` (+4 case voice), jsdom “[chọn giọng đọc]”.
+  lưu ở `chrome.storage.local.voice`; đổi giọng giữa chừng chỉ xoá audio của các
+  câu CHƯA phát (giữ câu đang đọc và các câu đã có audio đúng giọng mới) rồi tải
+  lại bằng giọng mới (cache trình duyệt cũng key theo voice). Danh sách lấy từ
+  server, nếu server tắt thì fallback 2 giọng Việt. Test: `test_tts_retry.py`
+  (+4 case voice), jsdom “[chọn giọng đọc]”.
+- **Đổi giọng không còn làm YouTube im tiếng** (sự cố 25/10/2026: chọn giọng mới
+  xong video im luôn): `invalidateCueAudio()` trước đây gọi `cutCurrentAudio()`,
+  cắt ngang câu đang đọc, trong khi audio giọng mới phải chờ tổng hợp lại nên khoảng
+  lặng kéo dài. Giờ câu đang đọc tiếp tục bằng giọng cũ (không pause/cắt), giọng mới
+  áp dụng từ câu kế; bản dịch `cue.vi` được giữ (không phụ thuộc giọng) nên không
+  phải dịch lại; câu đã có `cue.audioVoice === voiceId` (đổi đi rồi đổi lại) được
+  giữ nguyên. Test jsdom “[đổi giọng - không cắt câu đang đọc]”.
+- **Câu lỗi được tự thử lại, không bắt user bấm tay** (sự cố 25/10/2026: Edge TTS
+  rớt một đợt, mọi câu trong đoạn bị đánh `skipfail` → im tiếng tới hết video):
+  `skipFailedCue()` lên lịch tự thử lại sau 5s, rồi 10/20/40/60s (giữ 60s khi vẫn
+  lỗi), tối đa 4 lần/câu (`MAX_AUTO_RETRIES`); chỉ thử câu còn trong vùng sắp phát,
+  câu đã trôi qua quá `MAX_LATE_S` thì bỏ. Có audio mới thành công → reset backoff.
+  Nút “Thử lại lỗi” vẫn cho thử ngay và reset bộ đếm; khi hết câu lỗi nút tự về
+  “Đã tải script”. Test jsdom “[tự thử lại câu lỗi]”.
+- **Không còn bão request TTS khi dịch vụ rớt** (cùng sự cố trên: log đầy
+  `tts_retry attempt=1..3 … NoAudioReceived` rồi `/speak` 502, client thử lại 3 lần
+  ⇒ tối đa 9 lần gọi Edge TTS cho một câu, câu kẹt ~30s và chiếm hết slot đệm):
+  server giới hạn `_TTS_CONCURRENCY = 4` phiên Edge TTS đồng thời (semaphore theo
+  event loop, `_tts_gate()`) và mỗi lần thử có timeout 20s (`_TTS_ATTEMPT_TIMEOUT_S`)
+  để phiên treo không giữ slot; client thấy 502 `tts_*` thì dừng retry ngay (server
+  đã thử 3 lần + đổi giọng dự phòng) và để cơ chế tự thử lại của `skipfail` lo tiếp.
+  Đo trên máy: 12 câu mới liên tiếp, 12/12 OK trong ~6s, 0 lần `tts_retry`, so với
+  trước đó vừa chậm vừa 502. Test: `test_tts_retry.py` (+2 case semaphore/timeout).
 - **Lỗi 401 của provider API không còn giết cả phiên lồng tiếng** (sự cố 24/10/2026:
   Ollama trả 401 hàng loạt đúng lúc user đang tạo lại key → mọi câu fail 3 lần rồi bị
   bỏ): chuỗi provider giờ = [provider đang cấu hình] + `free_providers()`

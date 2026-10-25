@@ -103,6 +103,72 @@ class SynthRetryTests(unittest.TestCase):
             asyncio.run(main.synth("câu thử", "../../etc/passwd; rm -rf"))
         self.assertEqual(stub.calls, [main.VOICE])
 
+    def test_concurrent_synthesis_is_capped(self):
+        """Nhiều /speak cùng lúc không được mở quá _TTS_CONCURRENCY phiên Edge TTS."""
+        state = {"active": 0, "peak": 0}
+
+        class _Stream:
+            def __init__(self) -> None:
+                self.sent = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.sent:
+                    raise StopAsyncIteration
+                self.sent = True
+                state["active"] += 1
+                state["peak"] = max(state["peak"], state["active"])
+                try:
+                    await asyncio.sleep(0.05)
+                finally:
+                    state["active"] -= 1
+                return {"type": "audio", "data": b"ok"}
+
+        class _Comm:
+            def __init__(self, text: str, voice: str) -> None:
+                self.text = text
+
+            def stream(self):
+                return _Stream()
+
+        async def run_all():
+            return await asyncio.gather(*(main.synth(f"câu {i}") for i in range(8)))
+
+        with patch.object(main, "edge_tts", SimpleNamespace(Communicate=_Comm)):
+            results = asyncio.run(run_all())
+
+        self.assertEqual(results, [b"ok"] * 8)
+        self.assertLessEqual(state["peak"], main._TTS_CONCURRENCY)
+        self.assertEqual(state["peak"], main._TTS_CONCURRENCY)
+
+    def test_attempt_timeout_is_retried_then_raised(self):
+        calls = []
+
+        class _Stream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                calls.append(1)
+                await asyncio.sleep(5)
+                raise StopAsyncIteration
+
+        class _Comm:
+            def __init__(self, text: str, voice: str) -> None:
+                pass
+
+            def stream(self):
+                return _Stream()
+
+        with patch.object(main, "edge_tts", SimpleNamespace(Communicate=_Comm)), \
+                patch.object(main, "_TTS_ATTEMPT_TIMEOUT_S", 0.01):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(main.synth("câu treo"))
+
+        self.assertEqual(len(calls), 3)
+
 
 class VoiceSelectionTests(unittest.TestCase):
     def test_normalize_voice(self):
