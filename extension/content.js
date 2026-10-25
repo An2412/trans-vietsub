@@ -520,6 +520,7 @@ function updateVideoRateUi(value) {
 }
 
 function b64ToUrl(b64) {
+  if (typeof b64 !== "string" || !b64) throw new Error("invalid_audio_data");
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -570,7 +571,7 @@ function calculateAdaptivePlaybackRate(cue, naturalDuration, videoRate) {
     : null;
 
   let windowSeconds = 0;
-  if (nextCue && nextCue.start > cue.start) {
+  if (nextCue && Number.isFinite(nextCue.start) && nextCue.start > cue.start) {
     windowSeconds = Math.max(0.6, nextCue.start - cue.start - 0.15);
   } else if (cue.end > cue.start) {
     windowSeconds = Math.max(0.6, cue.end - cue.start + 0.4);
@@ -582,14 +583,18 @@ function calculateAdaptivePlaybackRate(cue, naturalDuration, videoRate) {
   const minRate = baseRate * MIN_SPEED_FACTOR;
   const maxRate = baseRate * MAX_SPEED_FACTOR;
 
-  return Math.max(minRate, Math.min(maxRate, requiredRate));
+  const rate = Math.max(minRate, Math.min(maxRate, requiredRate));
+  // playbackRate = NaN/Infinity sẽ ném TypeError và làm chết vòng phát.
+  return Number.isFinite(rate) && rate > 0 ? rate : baseRate;
 }
 
 function applyEffectiveSpeechRate() {
   if (!currentAudio || currentAudio.ended || !currentCue) return;
   const vRate = getVideo()?.playbackRate || 1;
   const rate = calculateAdaptivePlaybackRate(currentCue, currentCue.duration || currentAudio.duration, vRate);
-  currentAudio.playbackRate = rate;
+  if (Number.isFinite(rate) && rate > 0) {
+    currentAudio.playbackRate = Math.min(16, Math.max(0.0625, rate));
+  }
 }
 
 function prefetchWindow(video) {
@@ -1375,6 +1380,28 @@ function midCueResumeFraction(cue, now) {
 }
 
 function playCue(cue, now) {
+  if (!cue || !cue.audio) {
+    if (cue) cue.state = "skipped";
+    return;
+  }
+  try {
+    playCueSafe(cue, now);
+  } catch (error) {
+    // Audio hỏng/giải mã lỗi/blob đã bị thu hồi: bỏ qua câu này thay vì ném lỗi
+    // mỗi 100ms và làm đứt cả vòng phát lồng tiếng.
+    console.warn(TAG, "Bỏ qua câu không phát được:", error?.message || error);
+    cue.state = "skipped";
+    cue.audio = null;
+    cleanupCueAudio(cue);
+    if (currentCue === cue) {
+      currentAudio = null;
+      currentAudioUrl = null;
+      currentCue = null;
+    }
+  }
+}
+
+function playCueSafe(cue, now) {
   let audio = cue.audioElement;
   let url = cue.audioUrl;
   if (!audio) {
@@ -1390,14 +1417,17 @@ function playCue(cue, now) {
   const naturalDuration = cue.duration || (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
   const effectiveRate = calculateAdaptivePlaybackRate(cue, naturalDuration, vRate);
 
-  audio.playbackRate = effectiveRate;
+  if (Number.isFinite(effectiveRate) && effectiveRate > 0) {
+    audio.playbackRate = Math.min(16, Math.max(0.0625, effectiveRate));
+  }
   audio.preservesPitch = true;
 
   const finish = () => {
-    if (currentAudio === audio) {
-      currentAudio = null;
-      currentAudioUrl = null;
-      currentCue = null;
+    if (currentAudio !== audio) return;
+    currentAudio = null;
+    currentAudioUrl = null;
+    currentCue = null;
+    try {
       cleanupCueAudio(cue);
       resumeIfReady();
 
@@ -1410,6 +1440,8 @@ function playCue(cue, now) {
           playCue(nextDue, nextNow);
         }
       }
+    } catch (error) {
+      console.warn(TAG, "Lỗi khi chuyển câu lồng tiếng:", error?.message || error);
     }
   };
 
@@ -1436,10 +1468,18 @@ function playCue(cue, now) {
     else audio.addEventListener("loadedmetadata", applyOffset, { once: true });
   }
 
-  audio.play().catch((error) => {
-    console.warn(TAG, "Không phát được âm thanh:", error.message);
+  try {
+    const playing = audio.play();
+    if (playing && typeof playing.catch === "function") {
+      playing.catch((error) => {
+        console.warn(TAG, "Không phát được âm thanh:", error?.message || error);
+        finish();
+      });
+    }
+  } catch (error) {
+    console.warn(TAG, "Không phát được âm thanh:", error?.message || error);
     finish();
-  });
+  }
 }
 
 function playTick() {

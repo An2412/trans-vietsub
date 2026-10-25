@@ -285,7 +285,14 @@ function testSeekRecovery() {
         v.dispatchEvent(new window.Event("seeking"));
       },
       cues: () => cues,
-      heal: (index) => healStuckCue(cues[index])
+      heal: (index) => healStuckCue(cues[index]),
+      playCorrupt() {
+        const cue = { start: 0, end: 2, en: "audio hong", vi: "", state: "ready",
+          audio: "!!!khong-phai-base64!!!", duration: 0 };
+        cues.push(cue);
+        playCue(cue, 0);
+        return cue.state;
+      }
     };
   `;
   const window = setupDom(html, "https://www.youtube.com/watch?v=abc123", hook);
@@ -303,6 +310,14 @@ function testSeekRecovery() {
     "câu kẹt loading quá 30s được đưa về hàng đợi", cues[3].state);
   check(window.__vd.heal(4) === false && cues[4].state === "loading",
     "câu mới loading chưa quá hạn thì không bị đụng", cues[4].state);
+
+  let corruptThrew = null;
+  let corruptState = "";
+  try { corruptState = window.__vd.playCorrupt(); } catch (error) { corruptThrew = error; }
+  check(corruptThrew === null, "audio hỏng không làm ném lỗi ra vòng phát",
+    corruptThrew && corruptThrew.message);
+  check(corruptState === "skipped", "câu có audio hỏng được đánh dấu skipped",
+    corruptState);
 
   finish();
 }

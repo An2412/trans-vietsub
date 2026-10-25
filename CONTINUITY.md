@@ -59,6 +59,15 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   (`NEAR_WINDOW_S` 12s) được thêm 2 slot (`NEAR_EXTRA_SLOTS`). Nếu câu hiện tại trễ
   >1.2s mà chưa có audio trong khi câu kế đã sẵn sàng và bắt đầu ≤ now+0.3 thì nhường
   cho câu sau. Test: `tests/jsdom/smoke.js` mục “[seek - phục hồi lồng tiếng]”.
+- **Vòng phát không bao giờ ném lỗi ra ngoài** (sự cố 25/10/2026: console báo lỗi
+  trong callback `finish` của `playCue`, async stack trỏ `processCue`): audio hỏng
+  (base64 sai/blob bị thu hồi) trước đây làm `b64ToUrl`/`audio.playbackRate` ném lỗi
+  ngay trong callback `onended`, biến thành promise rejection không ai bắt và có thể
+  làm đứt vòng phát. Giờ `playCue()` là wrapper bọc `playCueSafe()`: lỗi → log cảnh
+  báo, đánh `skipped`, xoá `cue.audio` để không thử lại vô hạn; toàn bộ `finish`
+  (cleanup + chuyển câu) nằm trong try/catch; `b64ToUrl` từ chối dữ liệu không phải
+  chuỗi base64; `calculateAdaptivePlaybackRate` luôn trả số hữu hạn và playbackRate
+  được kẹp 0.0625–16 trước khi gán. Test jsdom: câu audio hỏng → `skipped`, không throw.
 - **Lỗi 401 của provider API không còn giết cả phiên lồng tiếng** (sự cố 24/10/2026:
   Ollama trả 401 hàng loạt đúng lúc user đang tạo lại key → mọi câu fail 3 lần rồi bị
   bỏ): chuỗi provider giờ = [provider đang cấu hình] + `free_providers()`
