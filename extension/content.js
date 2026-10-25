@@ -1,5 +1,8 @@
 const TAG = "[VietDub]";
 const MAX_PARALLEL = 3; // Tăng lên 3 luồng tải audio song song để đệm trước không bị rỗng
+const NEAR_WINDOW_S = 12; // câu sát vị trí phát được ưu tiên thêm slot
+const NEAR_EXTRA_SLOTS = 2;
+const STUCK_LOADING_MS = 30000; // câu kẹt "loading" quá lâu mà chưa có audio → thử lại
 const PREFETCH_BASE_WALL_S = 60;
 const PREFETCH_MAX_MEDIA_S = 150;
 const MAX_LATE_S = 6;
@@ -1123,6 +1126,7 @@ function handleCueFailure(cue, error) {
 async function processCue(cue, myGeneration = generation) {
   if (!cue || cue.state === "loading" || cue.audio) return;
   cue.state = "loading";
+  cue.loadingSince = Date.now();
   inflight++;
   let lastError = "unknown_error";
   let previousFailure = null;
@@ -1191,7 +1195,23 @@ async function processCue(cue, myGeneration = generation) {
     }
   } finally {
     inflight = Math.max(0, inflight - 1);
+    // Request bị huỷ giữa đường (đổi generation, seek, lỗi mạng): trả câu về
+    // hàng đợi thay vì để nó kẹt "loading" vĩnh viễn và chặn cả đoạn phía sau.
+    if (cue.state === "loading" && !cue.audio) {
+      cue.state = "new";
+    }
+    if (!cue.audio) cue.loadingSince = 0;
   }
+}
+
+// Câu bị kẹt "loading" (request chết/treo, tab bị treo, seek giữa chừng) sẽ chặn
+// cả đoạn phía sau nếu không được đưa về hàng đợi. Trả về true nếu vừa chữa.
+function healStuckCue(cue, nowMs = Date.now()) {
+  if (!cue || cue.audio || cue.state !== "loading") return false;
+  if (!cue.loadingSince || nowMs - cue.loadingSince <= STUCK_LOADING_MS) return false;
+  cue.state = "new";
+  cue.loadingSince = 0;
+  return true;
 }
 
 function prefetchTick(force = false) {
@@ -1202,11 +1222,25 @@ function prefetchTick(force = false) {
   const now = video.currentTime;
   const ahead = prefetchWindow(video);
   startBatchTranslate(now, ahead);
+  const nowMs = Date.now();
+  const softCap = MAX_PARALLEL + NEAR_EXTRA_SLOTS;
   for (const cue of cues) {
-    if (inflight >= MAX_PARALLEL) break;
-    if (cue.state !== "new") continue;
     if (cue.end + MAX_LATE_S < now) continue;
     if (cue.start > now + ahead) break;
+    // Tự chữa câu kẹt "loading" (request chết/treo) để không mất tiếng cả đoạn.
+    if (healStuckCue(cue, nowMs)) {
+      console.warn(TAG, "Câu kẹt khi tải giọng, thử lại:", cue.en);
+    }
+    if (cue.state !== "new") continue;
+    // Cờ batched cũ còn sót (batch bị huỷ khi seek) không được chặn dịch lại.
+    if (cue.batched && !cue.batchPromise) cue.batched = false;
+    // Câu sát vị trí đang phát (nhất là ngay sau khi tua) được ưu tiên slot,
+    // để không phải chờ các câu xa đang tải dở.
+    const near = cue.start <= now + NEAR_WINDOW_S;
+    if (inflight >= (near ? softCap : MAX_PARALLEL)) {
+      if (!near) break;
+      continue;
+    }
     processCue(cue, generation);
   }
 }
@@ -1459,6 +1493,22 @@ function playTick() {
       skipFailedCue(cue, "dịch/tts thất bại");
       continue;
     }
+    if (!cue.audio) {
+      // Câu hiện tại đã trễ mà chưa có giọng, trong khi câu kế đã sẵn sàng
+      // (thường gặp ngay sau khi tua): nhường cho câu sau để không im cả đoạn.
+      if (now - cue.start > 1.2) {
+        const idx = cues.indexOf(cue);
+        const readyNext = idx >= 0
+          ? cues.slice(idx + 1).find((c) => !isConsumedState(c.state) && c.audio)
+          : null;
+        if (readyNext && readyNext.start <= now + 0.3) {
+          cue.state = "skipped";
+          continue;
+        }
+      }
+      // Câu kẹt "loading" quá lâu → trả về hàng đợi để vòng prefetch thử lại.
+      healStuckCue(cue);
+    }
     if (cue.audio) {
       playCue(cue, now);
       return;
@@ -1497,6 +1547,9 @@ function resetPlayback() {
       cleanupCueAudio(cue);
     } else {
       cue.state = cue.audio ? "ready" : (cue.state === "loading" ? "loading" : "new");
+      // Vùng mới sau khi tua phải được gom dịch lại từ đầu.
+      cue.batched = false;
+      cue.batchPromise = null;
       if (cue.audio && !cue.audioElement) {
         preloadCueAudio(cue);
       }
@@ -1515,6 +1568,13 @@ function bindVideo() {
   });
   video.addEventListener("play", () => currentAudio && currentAudio.play().catch(() => {}));
   video.addEventListener("seeking", () => enabled && resetPlayback());
+  // Sau khi YouTube hoàn tất việc tua: khởi động lại pipeline ngay tại vị trí mới
+  // (đệm trước các câu sắp tới) thay vì chờ tick 300ms và tiếp tục việc cũ.
+  video.addEventListener("seeked", () => {
+    if (!enabled) return;
+    prefetchTick(true);
+    playTick();
+  });
   video.addEventListener("ratechange", () => {
     updateVideoRateUi(video.playbackRate);
     applyEffectiveSpeechRate();

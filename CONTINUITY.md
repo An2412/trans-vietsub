@@ -49,6 +49,16 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   “💾 Lưu tóm tắt để học”; không hề có auto-save (chỉ bấm mới tóm tắt/lưu).
   buildCues tách câu ở khoảng lặng ≥ 0.45s (trước 0.65s, min độ dài 14) để khoảng
   nghỉ giữa câu lồng tiếng bám nhịp giọng đọc gốc.
+- **Tua video không còn làm mất tiếng** (sự cố 25/10/2026: user tua 1:00 → 3:00,
+  chờ lâu mà không thấy lồng tiếng tiếp): khi `seeking`, câu cũ bị đánh `skipped`,
+  cờ `batched`/`batchPromise` của vùng mới được xóa để gom dịch lại; thêm listener
+  `seeked` gọi `prefetchTick(true)` + `playTick()` ngay tại vị trí mới. Câu kẹt
+  `loading` quá `STUCK_LOADING_MS` (30s) được `healStuckCue()` trả về `new` (dùng ở cả
+  prefetch lẫn playTick) và `finally` của `processCue` luôn nhả câu về `new` khi request
+  bị huỷ, để một request chết không chặn cả đoạn phía sau. Câu sát vị trí phát
+  (`NEAR_WINDOW_S` 12s) được thêm 2 slot (`NEAR_EXTRA_SLOTS`). Nếu câu hiện tại trễ
+  >1.2s mà chưa có audio trong khi câu kế đã sẵn sàng và bắt đầu ≤ now+0.3 thì nhường
+  cho câu sau. Test: `tests/jsdom/smoke.js` mục “[seek - phục hồi lồng tiếng]”.
 - **Lỗi 401 của provider API không còn giết cả phiên lồng tiếng** (sự cố 24/10/2026:
   Ollama trả 401 hàng loạt đúng lúc user đang tạo lại key → mọi câu fail 3 lần rồi bị
   bỏ): chuỗi provider giờ = [provider đang cấu hình] + `free_providers()`

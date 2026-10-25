@@ -247,8 +247,64 @@ function testSummarizeFlow() {
     check(summarize.disabled === false, "nút Tóm tắt bật lại sau khi xong");
     check(summarize.textContent.includes("Lưu tóm tắt"), "nhãn nút trở lại bình thường",
       summarize.textContent);
-    finish();
+    finish(testSeekRecovery);
   }, 300);
+}
+
+function testSeekRecovery() {
+  console.log("[seek - phục hồi lồng tiếng]");
+  const html = `<!doctype html><html><body>
+      <div id="movie_player"><video class="html5-main-video"></video></div>
+    </body></html>`;
+  const hook = `
+    globalThis.__vd = {
+      prime() {
+        scriptLoaded = true;
+        enabled = true;
+        autoPaused = false;
+        bindVideo();
+        const v = getVideo();
+        let t = 0;
+        Object.defineProperty(v, "currentTime", {
+          get: () => t, set: (x) => { t = x; }, configurable: true
+        });
+        cues = [
+          { start: 0, end: 2, en: "da qua", vi: "", state: "ready", audio: null, duration: 1, batched: true },
+          { start: 2, end: 4, en: "da qua 2", vi: "", state: "ready", audio: null, duration: 1, batched: true },
+          { start: 180, end: 182, en: "sau khi tua", vi: "", state: "new", audio: null, duration: 0,
+            batched: true, batchPromise: Promise.resolve() },
+          { start: 183, end: 185, en: "ket loading", vi: "", state: "loading", audio: null, duration: 0,
+            loadingSince: Date.now() - 60000 },
+          { start: 186, end: 188, en: "moi loading", vi: "", state: "loading", audio: null, duration: 0,
+            loadingSince: Date.now() }
+        ];
+      },
+      seek(seconds) {
+        const v = getVideo();
+        v.currentTime = seconds;
+        v.dispatchEvent(new window.Event("seeking"));
+      },
+      cues: () => cues,
+      heal: (index) => healStuckCue(cues[index])
+    };
+  `;
+  const window = setupDom(html, "https://www.youtube.com/watch?v=abc123", hook);
+  window.__vd.prime();
+  window.__vd.seek(180);
+  const cues = window.__vd.cues();
+
+  check(cues[0].state === "skipped" && cues[1].state === "skipped",
+    "tua qua 3:00 -> câu cũ bị đánh dấu skipped", cues[0].state + "/" + cues[1].state);
+  check(cues[2].state === "new", "câu sau vị trí tua vẫn ở hàng đợi", cues[2].state);
+  check(cues[2].batched === false && cues[2].batchPromise === null,
+    "cờ batched/batchPromise cũ được xóa để gom dịch lại");
+
+  check(window.__vd.heal(3) === true && cues[3].state === "new",
+    "câu kẹt loading quá 30s được đưa về hàng đợi", cues[3].state);
+  check(window.__vd.heal(4) === false && cues[4].state === "loading",
+    "câu mới loading chưa quá hạn thì không bị đụng", cues[4].state);
+
+  finish();
 }
 
 function finish(next) {
