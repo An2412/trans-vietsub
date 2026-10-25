@@ -279,7 +279,7 @@ function mountWidget() {
       .iconButton { flex:0 0 25px; min-height:25px; padding:0; border-radius:6px; background:#3b414b; font-size:17px; }
       .bubble { width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; box-shadow:0 4px 18px rgba(0,0,0,.45); cursor:grab; touch-action:none;
         transition: opacity 1.6s ease; }
-      .bubble[data-idle="true"] { opacity: 0.02; }
+      .bubble[data-idle="true"] { opacity: 0.25; }
       .bubble:hover, .bubble:focus-visible { opacity: 1; transition: opacity .2s ease; }
       .status { min-height:36px; color:#d5d9df; margin:4px 0 8px; overflow-wrap:anywhere; }
       .status[data-kind="success"] { color:#80e1a4; }
@@ -387,7 +387,7 @@ function mountWidget() {
   return true;
 }
 
-// Bubble thu gọn: 10s không ai đụng → mờ gần như biến mất; đụng vào là rõ lại.
+// Bubble thu gọn: 10s không ai đụng → mờ còn ~25% cho dễ thấy; đụng vào là rõ lại.
 const BUBBLE_IDLE_MS = 10000;
 let bubbleIdleTimer = null;
 

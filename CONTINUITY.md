@@ -65,9 +65,10 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   + đệm 10%) vì ảnh gốc có nhiều nền đen khiến glyph bé ở cỡ nhỏ; thêm unsharp nhẹ
   cho 32/16. Xuất `extension/icons/icon{128,48,32,16}.png`. Chạy:
   `server\.venv\Scripts\python.exe tools\make_icons.py`.
-- **Bubble thu gọn tự mờ khi rảnh 10s** (yêu cầu của user, “càng mờ càng tốt”):
-  `.bubble` có `transition: opacity`; `data-idle="true"` ⇒ opacity 0.02; hover/focus
-  phục hồi ở .2s. JS: `armBubbleIdleFade()`/`wakeBubble()` + `BUBBLE_IDLE_MS=10000`, armed khi
+- **Bubble thu gọn tự mờ khi rảnh 10s** (yêu cầu của user, hạ độ mờ xuống ~75% để
+  còn tìm thấy, không tàng hình): `.bubble` có `transition: opacity`; `data-idle="true"`
+  ⇒ opacity 0.25; hover/focus phục hồi ở .2s. JS: `armBubbleIdleFade()`/`wakeBubble()` +
+  `BUBBLE_IDLE_MS=10000`, armed khi
   `setWidgetCollapsed(true)`, reset trên pointerenter/down/leave (leave re-arm).
 - Edge TTS rớt thoáng NoAudioReceived (tái hiện trên máy: cùng câu/giọng lần 1-2
   FAIL lần 3 OK): `synth()` tự retry theo plan HoaiMy → HoaiMy (0.7s) → fallback
