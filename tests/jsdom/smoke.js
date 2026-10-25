@@ -25,6 +25,7 @@ function check(cond, message, extra = "") {
 function makeChrome() {
   const store = { enabled: false };
   return {
+    __store: store,
     storage: {
       local: {
         get: (keys) => {
@@ -319,7 +320,83 @@ function testSeekRecovery() {
   check(corruptState === "skipped", "câu có audio hỏng được đánh dấu skipped",
     corruptState);
 
-  finish();
+  finish(testVoicePicker);
+}
+
+function testVoicePicker() {
+  console.log("[chọn giọng đọc]");
+  const html = `<!doctype html><html><body>
+      <div id="movie_player"><video class="html5-main-video"></video></div>
+    </body></html>`;
+  const hook = `
+    globalThis.__vd = {
+      speak: () => requestSpeak("xin chào"),
+      currentVoice: () => voiceId,
+      reload: () => {
+        voiceOptionsLoaded = false;
+        voicePresets = [];
+        return loadVoiceOptions();
+      }
+    };
+  `;
+  const window = setupDom(html, "https://www.youtube.com/watch?v=abc123", hook);
+  const sent = [];
+  window.chrome.runtime.sendMessage = (msg) => {
+    sent.push(msg);
+    if (msg.type === "voices") {
+      return Promise.resolve({
+        ok: true,
+        voices: [
+          { id: "vi-VN-HoaiMyNeural", label: "HoaiMy · nữ" },
+          { id: "vi-VN-NamMinhNeural", label: "NamMinh · nam" }
+        ]
+      });
+    }
+    return Promise.resolve({ ok: false });
+  };
+
+  const host = window.document.querySelector("#vietdub-widget-host");
+  const shadow = host && host.shadowRoot;
+  const select = shadow && shadow.getElementById("voice");
+  const customRow = shadow && shadow.getElementById("voiceCustomRow");
+  const customInput = shadow && shadow.getElementById("voiceCustom");
+  const apply = shadow && shadow.getElementById("voiceApply");
+  check(Boolean(select), "widget có ô chọn giọng đọc");
+
+  window.__vd.reload();
+
+  setTimeout(() => {
+    check(select.options.length === 3, "có 2 giọng + mục Voice ID khác",
+      String(select.options.length));
+    check(select.value === "vi-VN-HoaiMyNeural", "mặc định là HoaiMy", select.value);
+    check(sent.some((m) => m.type === "voices"), "widget hỏi server danh sách giọng");
+
+    select.value = "vi-VN-NamMinhNeural";
+    select.dispatchEvent(new window.Event("change"));
+    check(window.__vd.currentVoice() === "vi-VN-NamMinhNeural",
+      "chọn NamMinh -> voiceId đổi", window.__vd.currentVoice());
+    check(window.chrome.__store.voice === "vi-VN-NamMinhNeural",
+      "giọng được lưu vào chrome.storage", String(window.chrome.__store.voice));
+    window.__vd.speak();
+    const speak = sent.find((m) => m.type === "speak");
+    check(speak && speak.voice === "vi-VN-NamMinhNeural",
+      "request /speak gửi kèm giọng đã chọn", speak && speak.voice);
+
+    select.value = "__custom__";
+    select.dispatchEvent(new window.Event("change"));
+    check(customRow.hidden === false, "chọn 'Khác' -> hiện ô nhập Voice ID");
+    customInput.value = "en-US-AvaMultilingualNeural";
+    apply.dispatchEvent(new window.Event("click"));
+    check(window.__vd.currentVoice() === "en-US-AvaMultilingualNeural",
+      "nhập Voice ID hợp lệ -> áp dụng", window.__vd.currentVoice());
+
+    customInput.value = "không hợp lệ!!";
+    apply.dispatchEvent(new window.Event("click"));
+    check(window.__vd.currentVoice() === "en-US-AvaMultilingualNeural",
+      "Voice ID sai định dạng bị từ chối", window.__vd.currentVoice());
+
+    finish();
+  }, 100);
 }
 
 function finish(next) {

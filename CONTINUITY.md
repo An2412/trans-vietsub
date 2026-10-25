@@ -68,6 +68,17 @@ bài học xuất ra **Google Docs** hoặc **Notion**.
   (cleanup + chuyển câu) nằm trong try/catch; `b64ToUrl` từ chối dữ liệu không phải
   chuỗi base64; `calculateAdaptivePlaybackRate` luôn trả số hữu hạn và playbackRate
   được kẹp 0.0625–16 trước khi gán. Test jsdom: câu audio hỏng → `skipped`, không throw.
+- **Chọn giọng đọc trong widget** (yêu cầu của user 25/10/2026): server có
+  `GET /voices` trả 14 giọng — 2 giọng Việt (HoaiMy nữ, NamMinh nam) + 12 giọng
+  `*MultilingualNeural` đọc được tiếng Việt với chất giọng nước ngoài; `/speak` nhận
+  `voice`, chỉ chấp nhận Voice ID đúng dạng `xx-XX-...Neural` (`normalize_voice`,
+  sai/rỗng → giọng mặc định), cache audio key theo `(voice, text)` nên đổi giọng
+  không phát lại audio cũ; khi TTS lỗi vẫn thử 2 lần giọng đã chọn rồi mới rơi về
+  giọng Việt dự phòng. Widget có `<select id="voice">` + ô nhập Voice ID tùy ý,
+  lưu ở `chrome.storage.local.voice`; đổi giọng giữa chừng sẽ cắt audio hiện tại,
+  xoá audio đã tạo của các câu chưa phát và tải lại bằng giọng mới (cache trình
+  duyệt cũng key theo voice). Danh sách lấy từ server, nếu server tắt thì fallback
+  2 giọng Việt. Test: `test_tts_retry.py` (+4 case voice), jsdom “[chọn giọng đọc]”.
 - **Lỗi 401 của provider API không còn giết cả phiên lồng tiếng** (sự cố 24/10/2026:
   Ollama trả 401 hàng loạt đúng lúc user đang tạo lại key → mọi câu fail 3 lần rồi bị
   bỏ): chuỗi provider giờ = [provider đang cấu hình] + `free_providers()`

@@ -36,9 +36,17 @@ let widgetCollapsed = false;
 let adActive = false;
 let rateLimitUntil = 0;
 let batchRetryAt = 0;
+let voiceId = "vi-VN-HoaiMyNeural";
+let voicePresets = [];
+let voiceOptionsLoaded = false;
 const clientAudioCache = new Map();
 let clientAudioCacheBytes = 0;
 let clientCacheDbPromise = null;
+const VOICE_ID_RE = /^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]{2,40}Neural$/;
+const FALLBACK_VOICE_PRESETS = [
+  { id: "vi-VN-HoaiMyNeural", label: "HoaiMy · nữ, giọng Bắc" },
+  { id: "vi-VN-NamMinhNeural", label: "NamMinh · nam, giọng Bắc" },
+];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -109,8 +117,19 @@ function videoTitle() {
   return document.title;
 }
 
-function cueCacheKey(text) {
-  return String(text || "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+function normalizeVoiceId(value) {
+  const voice = String(value || "").trim();
+  if (!voice || voice.length > 64 || !VOICE_ID_RE.test(voice)) return "";
+  return voice;
+}
+
+function voiceLabel(voice) {
+  const found = voicePresets.find((item) => item.id === voice);
+  return found ? found.label : voice;
+}
+
+function cueCacheKey(text, voice = voiceId) {
+  return `${voice}\u0000${String(text || "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase()}`;
 }
 
 function openClientCacheDb() {
@@ -140,8 +159,8 @@ function idbRequest(request) {
   });
 }
 
-async function getCachedCueAudio(text) {
-  const key = cueCacheKey(text);
+async function getCachedCueAudio(text, voice = voiceId) {
+  const key = cueCacheKey(text, voice);
   const memoryEntry = clientAudioCache.get(key);
   if (memoryEntry) {
     clientAudioCache.delete(key);
@@ -154,7 +173,7 @@ async function getCachedCueAudio(text) {
     const tx = db.transaction("clips", "readonly");
     const entry = await idbRequest(tx.objectStore("clips").get(key));
     if (!entry?.audio) return null;
-    rememberCueAudio(text, entry.audio, entry.vi || "", false);
+    rememberCueAudio(text, entry.audio, entry.vi || "", false, voice);
     return { audio: entry.audio, vi: entry.vi || "", bytes: entry.bytes || 0 };
   } catch (error) {
     console.warn(TAG, "Không đọc được cache local của trình duyệt:", error?.message || error);
@@ -162,8 +181,8 @@ async function getCachedCueAudio(text) {
   }
 }
 
-function rememberCueAudio(text, audio, vi, persist = true) {
-  const key = cueCacheKey(text);
+function rememberCueAudio(text, audio, vi, persist = true, voice = voiceId) {
+  const key = cueCacheKey(text, voice);
   if (!key || !audio) return;
   const previous = clientAudioCache.get(key);
   if (previous) {
@@ -315,6 +334,14 @@ function mountWidget() {
       .videoSpeed { display:flex; align-items:center; gap:8px; margin-top:10px; color:#d5d9df; }
       .videoSpeed label { white-space:nowrap; }
       .videoRateValue { min-width:38px; text-align:right; color:#fff; font-variant-numeric:tabular-nums; }
+      .voiceRow { display:flex; align-items:center; gap:8px; margin-top:10px; color:#d5d9df; }
+      .voiceRow label { white-space:nowrap; }
+      .voiceRow select, .voiceRow input {
+        flex:1; min-width:0; background:#1b1f26; color:#f7f7f8; border:1px solid rgba(255,255,255,.18);
+        border-radius:7px; padding:5px 6px; font:12px system-ui,sans-serif;
+      }
+      .voiceRow input::placeholder { color:#8b93a1; }
+      .voiceRow button { flex:0 0 auto; min-height:28px; padding:4px 8px; font-size:11px; }
     </style>
     <section id="panel" class="panel" aria-label="Viet Dub">
       <div id="dragHandle" class="head">
@@ -335,6 +362,14 @@ function mountWidget() {
         <summary>Xem bản tóm tắt</summary>
         <pre id="summaryText"></pre>
       </details>
+      <div class="voiceRow">
+        <label for="voice">Giọng đọc</label>
+        <select id="voice" title="Giọng lồng tiếng"></select>
+      </div>
+      <div class="voiceRow" id="voiceCustomRow" hidden>
+        <input id="voiceCustom" type="text" spellcheck="false" placeholder="Voice ID, vd: en-US-AvaMultilingualNeural" />
+        <button id="voiceApply" class="secondary" type="button">Dùng</button>
+      </div>
       <div class="videoSpeed">
         <span>Tốc độ đọc video</span>
         <span id="videoRateValue" class="videoRateValue" aria-live="polite">1.00×</span>
@@ -359,10 +394,38 @@ function mountWidget() {
     summaryBox: shadow.getElementById("summaryBox"),
     summaryText: shadow.getElementById("summaryText"),
     videoRateValue: shadow.getElementById("videoRateValue"),
+    voice: shadow.getElementById("voice"),
+    voiceCustomRow: shadow.getElementById("voiceCustomRow"),
+    voiceCustom: shadow.getElementById("voiceCustom"),
+    voiceApply: shadow.getElementById("voiceApply"),
   };
   ui.load.addEventListener("click", onLoadButton);
   ui.start.addEventListener("click", toggleDubbing);
   ui.summarize.addEventListener("click", summarizeAndExport);
+  ui.voice.addEventListener("change", () => {
+    if (ui.voice.value === "__custom__") {
+      ui.voiceCustomRow.hidden = false;
+      ui.voiceCustom.focus();
+      return;
+    }
+    ui.voiceCustomRow.hidden = true;
+    setVoice(ui.voice.value);
+  });
+  ui.voiceApply.addEventListener("click", () => {
+    const voice = normalizeVoiceId(ui.voiceCustom.value);
+    if (!voice) {
+      setStatus("Voice ID không hợp lệ. Đúng dạng: vi-VN-NamMinhNeural.", "error");
+      return;
+    }
+    setVoice(voice);
+  });
+  ui.voiceCustom.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      ui.voiceApply.click();
+    }
+  });
+  loadVoiceOptions();
   ui.collapse.addEventListener("click", () => setWidgetCollapsed(true, true));
   ui.bubble.addEventListener("click", (event) => {
     if (ui.bubble.dataset.dragged === "true") {
@@ -957,8 +1020,8 @@ function startBatchTranslate(now, ahead) {
   for (const cue of group) cue.batchPromise = promise;
 }
 
-function requestSpeak(text) {
-  return chrome.runtime.sendMessage({ type: "speak", text });
+function requestSpeak(text, voice = voiceId) {
+  return chrome.runtime.sendMessage({ type: "speak", text, voice });
 }
 
 // Đích xuất tóm tắt: "gdocs" | "notion" | "none" (đặt trong popup).
@@ -1136,8 +1199,14 @@ async function processCue(cue, myGeneration = generation) {
   let lastError = "unknown_error";
   let previousFailure = null;
   try {
-    const cached = await getCachedCueAudio(cue.en);
+    const cachedVoice = voiceId;
+    const cached = await getCachedCueAudio(cue.en, cachedVoice);
     if (myGeneration !== generation) return;
+    // Người dùng đổi giọng trong lúc chờ cache → bỏ kết quả cũ, tải lại giọng mới.
+    if (cachedVoice !== voiceId) {
+      cue.state = "new";
+      return;
+    }
     if (cached) {
       cue.audio = cached.audio;
       cue.vi = cached.vi;
@@ -1167,8 +1236,15 @@ async function processCue(cue, myGeneration = generation) {
         if (!await waitForRetry(serverWait + jitter, attempt, cue, myGeneration, previousFailure?.status === 429)) return;
       }
       try {
-        const result = await requestSpeak(cue.en);
+        const attemptVoice = voiceId;
+        const result = await requestSpeak(cue.en, attemptVoice);
         if (myGeneration !== generation) return;
+        // Đổi giọng giữa lúc request đang chạy → không dùng audio của giọng cũ.
+        if (attemptVoice !== voiceId) {
+          cue.state = "new";
+          cue.loadingSince = 0;
+          return;
+        }
         if (!result?.ok) {
           const error = new Error(result?.error || "request_failed");
           error.status = Number(result?.status || 0);
@@ -1178,7 +1254,7 @@ async function processCue(cue, myGeneration = generation) {
         if (!result.audio) throw new Error("no_audio_received");
         cue.audio = result.audio;
         cue.vi = result.text || "";
-        rememberCueAudio(cue.en, cue.audio, cue.vi);
+        rememberCueAudio(cue.en, cue.audio, cue.vi, true, attemptVoice);
         cue.state = "ready";
         preloadCueAudio(cue);
         if (!fatalError) refreshWorkingStatus();
@@ -1345,6 +1421,90 @@ function toggleDubbing() {
     video.play().catch(() => setStatus("Không phát được video. Hãy bấm Play trên YouTube.", "error"));
   }
   prefetchTick(true);
+}
+
+// ---------- Chọn giọng đọc ----------
+// Danh sách lấy từ server (/voices); nếu server tắt thì dùng 2 giọng Việt mặc định.
+// Người dùng vẫn nhập được Voice ID bất kỳ đúng định dạng Edge TTS.
+async function loadVoiceOptions() {
+  if (voiceOptionsLoaded) return;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "voices" });
+    if (result?.ok && Array.isArray(result.voices) && result.voices.length) {
+      voicePresets = result.voices
+        .map((item) => ({
+          id: normalizeVoiceId(item?.id),
+          label: String(item?.label || item?.id || ""),
+        }))
+        .filter((item) => item.id);
+    }
+  } catch (_) {
+    /* Server chưa chạy: vẫn cho chọn 2 giọng Việt. */
+  }
+  if (!voicePresets.length) voicePresets = FALLBACK_VOICE_PRESETS.slice();
+  voiceOptionsLoaded = true;
+  renderVoiceOptions();
+}
+
+function renderVoiceOptions() {
+  if (!ui || !ui.voice) return;
+  const options = voicePresets.length ? voicePresets : FALLBACK_VOICE_PRESETS;
+  ui.voice.textContent = "";
+  for (const preset of options) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.label || preset.id;
+    ui.voice.appendChild(option);
+  }
+  const custom = document.createElement("option");
+  custom.value = "__custom__";
+  custom.textContent = "Khác — nhập Voice ID…";
+  ui.voice.appendChild(custom);
+  syncVoiceUi();
+}
+
+function syncVoiceUi() {
+  if (!ui || !ui.voice) return;
+  const options = voicePresets.length ? voicePresets : FALLBACK_VOICE_PRESETS;
+  const known = options.some((preset) => preset.id === voiceId);
+  ui.voice.value = known ? voiceId : "__custom__";
+  ui.voiceCustomRow.hidden = known;
+  if (!known) ui.voiceCustom.value = voiceId;
+}
+
+function setVoice(value) {
+  const voice = normalizeVoiceId(value);
+  if (!voice) {
+    setStatus("Voice ID không hợp lệ. Đúng dạng: vi-VN-NamMinhNeural.", "error");
+    syncVoiceUi();
+    return;
+  }
+  if (voice === voiceId) {
+    syncVoiceUi();
+    return;
+  }
+  voiceId = voice;
+  chrome.storage.local.set({ voice });
+  syncVoiceUi();
+  invalidateCueAudio();
+  setStatus(`Đã đổi giọng đọc: ${voiceLabel(voice)}. Câu tiếp theo dùng giọng mới.`, "success");
+}
+
+// Đổi giọng: bỏ audio đã tạo bằng giọng cũ (cache key có voice nên không lẫn)
+// và trả các câu chưa phát về hàng đợi để tải lại bằng giọng mới.
+function invalidateCueAudio() {
+  if (currentAudio) cutCurrentAudio();
+  for (const cue of cues) {
+    if (isConsumedState(cue.state)) continue;
+    cleanupCueAudio(cue);
+    cue.audio = null;
+    cue.vi = "";
+    cue.state = "new";
+    cue.batched = false;
+    cue.batchPromise = null;
+    cue.loadingSince = 0;
+  }
+  if (enabled && scriptLoaded && !fatalError) prefetchTick(true);
 }
 
 // ---------- Phát đúng thời điểm ----------
@@ -1690,9 +1850,12 @@ function watchSpaNavigation() {
 }
 setInterval(watchSpaNavigation, 700);
 
-chrome.storage.local.get(["enabled"]).then(({ enabled: savedEnabled = false }) => {
+chrome.storage.local.get(["enabled", "voice"]).then(({ enabled: savedEnabled = false, voice = "" }) => {
   enabled = savedEnabled;
-  console.log(TAG, "sẵn sàng; lồng tiếng", enabled ? "đang bật" : "đang tắt");
+  const savedVoice = normalizeVoiceId(voice);
+  if (savedVoice) voiceId = savedVoice;
+  syncVoiceUi();
+  console.log(TAG, "sẵn sàng; lồng tiếng", enabled ? "đang bật" : "đang tắt", "· giọng", voiceId);
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -1701,6 +1864,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
     enabled = Boolean(changes.enabled.newValue);
     if (!enabled && currentAudio) currentAudio.pause();
     if (ui && scriptLoaded) ui.start.textContent = enabled ? "Tắt lồng tiếng" : "▶ Bật lồng tiếng";
+  }
+  if (changes.voice) {
+    const next = normalizeVoiceId(changes.voice.newValue);
+    if (next && next !== voiceId) {
+      voiceId = next;
+      syncVoiceUi();
+      invalidateCueAudio();
+    }
   }
 });
 

@@ -129,6 +129,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === "voices") {
+    (async () => {
+      try {
+        const res = await fetch(`${SERVER}/voices`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          sendResponse({ ok: false, error: `HTTP ${res.status}`, status: res.status });
+          return;
+        }
+        sendResponse({ ok: true, voices: data.voices || [], default: data.default || "" });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error?.message || error) });
+      }
+    })();
+    return true;
+  }
+
   if (msg?.type !== "speak") return;
   (async () => {
     const controller = new AbortController();
@@ -137,7 +154,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const res = await fetch(`${SERVER}/speak`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: msg.text, target: "vi" }),
+        body: JSON.stringify({ text: msg.text, target: "vi", voice: msg.voice || "" }),
         signal: controller.signal,
       });
       const data = await res.json().catch(() => ({}));

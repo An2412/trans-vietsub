@@ -30,13 +30,43 @@ from tts_cache import TTSCache
 
 log = logging.getLogger("uvicorn.error")
 
-VOICE = "vi-VN-HoaiMyNeural"  # hoặc vi-VN-NamMinhNeural
+VOICE = "vi-VN-HoaiMyNeural"  # giọng mặc định (nữ, Bắc)
+# Edge TTS chỉ có 2 giọng tiếng Việt; các giọng "MultilingualNeural" đọc được
+# tiếng Việt với chất giọng nước ngoài (nghe lạ hơn nhưng có nhiều lựa chọn nam/nữ).
+VOICE_PRESETS = [
+    {"id": "vi-VN-HoaiMyNeural", "label": "HoaiMy · nữ, giọng Bắc", "gender": "female"},
+    {"id": "vi-VN-NamMinhNeural", "label": "NamMinh · nam, giọng Bắc", "gender": "male"},
+    {"id": "en-US-AvaMultilingualNeural", "label": "Ava · nữ, đa ngôn ngữ (Mỹ)", "gender": "female"},
+    {"id": "en-US-EmmaMultilingualNeural", "label": "Emma · nữ, đa ngôn ngữ (Mỹ)", "gender": "female"},
+    {"id": "en-US-AndrewMultilingualNeural", "label": "Andrew · nam, đa ngôn ngữ (Mỹ)", "gender": "male"},
+    {"id": "en-US-BrianMultilingualNeural", "label": "Brian · nam, đa ngôn ngữ (Mỹ)", "gender": "male"},
+    {"id": "en-AU-WilliamMultilingualNeural", "label": "William · nam, đa ngôn ngữ (Úc)", "gender": "male"},
+    {"id": "de-DE-SeraphinaMultilingualNeural", "label": "Seraphina · nữ, đa ngôn ngữ (Đức)", "gender": "female"},
+    {"id": "de-DE-FlorianMultilingualNeural", "label": "Florian · nam, đa ngôn ngữ (Đức)", "gender": "male"},
+    {"id": "fr-FR-VivienneMultilingualNeural", "label": "Vivienne · nữ, đa ngôn ngữ (Pháp)", "gender": "female"},
+    {"id": "fr-FR-RemyMultilingualNeural", "label": "Remy · nam, đa ngôn ngữ (Pháp)", "gender": "male"},
+    {"id": "it-IT-GiuseppeMultilingualNeural", "label": "Giuseppe · nam, đa ngôn ngữ (Ý)", "gender": "male"},
+    {"id": "ko-KR-HyunsuMultilingualNeural", "label": "Hyunsu · nam, đa ngôn ngữ (Hàn)", "gender": "male"},
+    {"id": "pt-BR-ThalitaMultilingualNeural", "label": "Thalita · nữ, đa ngôn ngữ (Brazil)", "gender": "female"},
+]
+# Chỉ chấp nhận Voice ID đúng định dạng Edge TTS, tránh chuỗi lạ được đẩy vào service.
+_VOICE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]{2,40}Neural$")
 # Edge TTS với service cũ thoáng (đã tái hiện): cùng câu/giọng lần 1 FAIL, lần 2 OK.
 # synth() thử lại theo plan dưới đây; tiếng cuối đổi sang giọng dự phòng.
 _TTS_FALLBACK_VOICE = "vi-VN-NamMinhNeural"
 _TTS_RETRY_DELAYS_S = (0.0, 0.7, 1.4)
 MAX_BATCH = 16
 CACHE_DB = Path(__file__).resolve().parent / "data" / "vietdub.sqlite3"
+
+
+def normalize_voice(value: str | None) -> str:
+    voice = (value or "").strip()
+    if not voice:
+        return VOICE
+    if len(voice) > 64 or not _VOICE_RE.match(voice):
+        log.warning("tts_voice_invalid value=%s", voice[:64])
+        return VOICE
+    return voice
 
 
 def text_fingerprint(text: str) -> str:
@@ -133,6 +163,13 @@ class TranslateBatchReq(BaseModel):
     target: str = "vi"
 
 
+class SpeakReq(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    target: str = "vi"
+    # Voice ID Edge TTS (vd: vi-VN-NamMinhNeural). Rỗng = giọng mặc định.
+    voice: str = Field(default="", max_length=64)
+
+
 class ProviderConfigReq(BaseModel):
     provider: str = Field(min_length=1, max_length=32)
     model: str = Field(min_length=1, max_length=128)
@@ -208,18 +245,21 @@ def translate_with_cache(text: str, target: str = "vi") -> tuple[str, str]:
         return result, "uncached"
 
 
-async def synth(text: str) -> bytes:
+async def synth(text: str, voice: str | None = None) -> bytes:
     """Tạo giọng Edge TTS, tự thử lại khi service rớt thoáng (NoAudioReceived).
 
     Đã tái hiện bằng bản dựng thật trên máy: cùng câu văn, cùng giọng, lần đầu
     FAIL còn lần sau lại OK — không phụ thuộc nội dung, là lỗi thoáng của service.
     Vì thế /speak phải tự thử lại với khoảng nghỉ ngắn, và
     lần cuối đổi sang giọng Việt Nam dự phòng thay vì trả 502 về client ngay.
+    `voice` là Voice ID người dùng chọn; rỗng/không hợp lệ → giọng mặc định.
     """
+    requested = normalize_voice(voice)
+    fallback = _TTS_FALLBACK_VOICE if requested == VOICE else VOICE
     plan: list[tuple[str, float]] = [
-        (VOICE, _TTS_RETRY_DELAYS_S[0]),
-        (VOICE, _TTS_RETRY_DELAYS_S[1]),
-        (_TTS_FALLBACK_VOICE, _TTS_RETRY_DELAYS_S[2]),
+        (requested, _TTS_RETRY_DELAYS_S[0]),
+        (requested, _TTS_RETRY_DELAYS_S[1]),
+        (fallback, _TTS_RETRY_DELAYS_S[2]),
     ]
     last_error: Exception = RuntimeError("NoAudioReceived")
     for index, (voice, delay) in enumerate(plan):
@@ -410,9 +450,16 @@ def translate_batch(req: TranslateBatchReq):
     return {"items": [{"text": t, "translation_cache": st} for t, st in out]}
 
 
+@app.get("/voices")
+def voices():
+    """Danh sách giọng đọc gợi ý cho widget (gồm 2 giọng Việt + giọng đa ngôn ngữ)."""
+    return {"default": VOICE, "voices": VOICE_PRESETS}
+
+
 @app.post("/speak")
-async def speak(req: TranslateReq):
+async def speak(req: SpeakReq):
     text_id = text_fingerprint(req.text)
+    voice = normalize_voice(req.voice)
     try:
         vi, translation_status = await asyncio.to_thread(translate_with_cache, req.text, req.target)
     except RateLimitedError as error:
@@ -422,20 +469,21 @@ async def speak(req: TranslateReq):
         raise HTTPException(status_code=502, detail=f"translate_failed:{type(error).__name__}:id={text_id}")
 
     try:
-        audio, audio_status = await audio_cache.get_or_create(vi, VOICE, synth)
+        audio, audio_status = await audio_cache.get_or_create(vi, voice, lambda text: synth(text, voice))
     except Exception as error:
-        log.error("request_failed stage=tts text_id=%s chars=%d voice=%s error=%s", text_id, len(vi), VOICE, safe_error_detail(error))
+        log.error("request_failed stage=tts text_id=%s chars=%d voice=%s error=%s", text_id, len(vi), voice, safe_error_detail(error))
         raise HTTPException(status_code=502, detail=f"tts_failed:{type(error).__name__}:id={text_id}")
     if not audio:
-        log.error("request_failed stage=tts text_id=%s chars=%d voice=%s error=NoAudioReceived", text_id, len(vi), VOICE)
+        log.error("request_failed stage=tts text_id=%s chars=%d voice=%s error=NoAudioReceived", text_id, len(vi), voice)
         raise HTTPException(status_code=502, detail=f"tts_empty:NoAudioReceived:id={text_id}")
     if audio_status != "miss":
-        log.info("tts_cache_reuse status=%s text_id=%s voice=%s audio_bytes=%d", audio_status, text_fingerprint(vi), VOICE, len(audio))
+        log.info("tts_cache_reuse status=%s text_id=%s voice=%s audio_bytes=%d", audio_status, text_fingerprint(vi), voice, len(audio))
     return {
         "text": vi,
         "audio": base64.b64encode(audio).decode(),
         "translation_cache": translation_status,
         "audio_cache": audio_status,
+        "voice": voice,
     }
 
 
